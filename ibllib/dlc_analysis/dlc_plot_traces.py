@@ -47,7 +47,7 @@ one = ONE()
 dtypes = ['_ibl_leftCamera.dlc', '_iblrig_taskData.raw', 'trials.feedback_times',
           'trials.feedbackType', 'trials.stimOn_times', 'trials.choice', '_iblrig_leftCamera.raw']
 eids = one.search(dataset_types=dtypes)
-eid = eids[1]
+eid = eids[0]
 d = one.load(eid, dataset_types=dtypes, download_only=True, dclass_output=True)
 folder_path = str(Path(d.local_path[0]).parent.parent)
 
@@ -60,35 +60,35 @@ choice, feedback_type = load_events(folder_path)
 # Get video frames during last reward
 frame_number = np.argmin(np.abs(dlc_dict['timestamps']-feedback_times[feedback_type == 1][-1]))
 frame = get_video_frame(d[7].local_path, frame_number)
-"""
+
 # Get pupil
 pupil_x, pupil_y, diameter = pupil_features(dlc_dict)
 
 # Plot pupil
 sns.set(style="ticks", context="paper", font_scale=2, rc={"lines.linewidth": 2.5})
 f, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 8))
-peri_plot(diameter, dlc_dict['timestamps'], stim_on_times, ax1, [-2, 4], 'baseline')
+peri_plot(diameter, dlc_dict['timestamps'], stim_on_times, ax1, [-1, 3], 'baseline')
 ax1.plot([0, 0], ax1.get_ylim(), 'r')
 ax1.set(ylabel='Baseline subtracted pupil diameter (mm)', xlabel='Time (s)',
         title='Stimulus onset')
 peri_plot(diameter, dlc_dict['timestamps'], feedback_times[feedback_type == 1],
-          ax2, [-2, 4], 'baseline')
+          ax2, [-1, 3], 'baseline')
 ax2.plot([0, 0], ax2.get_ylim(), 'r')
 ax2.set(ylabel='Baseline subtracted pupil diameter (mm)', xlabel='Time (s)',
         title='Reward delivery')
 plt.tight_layout(pad=2)
-"""
+
 # Plot paws
 f, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 8))
 peri_plot(dlc_dict['middle_finger_r_x'], dlc_dict['timestamps'],
-          feedback_times[(choice == -1) & (feedback_type == 1)], ax1, [-1, 10], 'baseline')
+          feedback_times[(choice == -1) & (feedback_type == 1)], ax1, [-1, 1], 'baseline')
 ax1.plot([0, 0], ax1.get_ylim(), 'r', label='Reward delivery')
 ax1.set(ylabel='Baseline subtracted paw position (mm)', xlabel='Time (s)',
         title='Leftward choices')
 ax1.legend(frameon=False)
 
 peri_plot(dlc_dict['middle_finger_r_x'], dlc_dict['timestamps'],
-          feedback_times[(choice == 1) & (feedback_type == 1)], ax2, [-1, 10], 'baseline')
+          feedback_times[(choice == 1) & (feedback_type == 1)], ax2, [-1, 1], 'baseline')
 ax2.plot([0, 0], ax2.get_ylim(), 'r', label='Reward delivery')
 ax2.set(ylabel='Baseline subtracted paw position (mm)', xlabel='Time (s)',
         title='Rightward choices')
@@ -98,16 +98,16 @@ plt.tight_layout(pad=2)
 # Plot tongue
 f, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 8))
 peri_plot(dlc_dict['tongue_end_l_x'], dlc_dict['timestamps'],
-          feedback_times[feedback_type == 1], ax1, [-1, 10], 'none')
+          feedback_times[feedback_type == 1], ax1, [-1, 1], 'baseline')
 ax1.plot([0, 0], ax1.get_ylim(), 'r', label='Reward delivery')
-ax1.set(ylabel='Baseline subtracted paw position (mm)', xlabel='Time (s)',
+ax1.set(ylabel='Tongue position (mm)', xlabel='Time (s)',
         title='Correct trials')
 ax1.legend(frameon=False)
 
 peri_plot(dlc_dict['tongue_end_r_x'], dlc_dict['timestamps'],
-          feedback_times[feedback_type == -1], ax2, [-1, 10], 'none')
+          feedback_times[feedback_type == -1], ax2, [-1, 1], 'baseline')
 ax2.plot([0, 0], ax2.get_ylim(), 'r', label='Reward delivery')
-ax2.set(ylabel='Baseline subtracted paw position (mm)', xlabel='Time (s)',
+ax2.set(ylabel='Tongue position (mm)', xlabel='Time (s)',
         title='Incorrect trials')
 ax2.legend(frameon=False)
 

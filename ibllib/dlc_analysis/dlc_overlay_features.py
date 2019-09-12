@@ -6,8 +6,9 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
+from glob import glob
 import json
-from dlc_basis_functions import load_dlc
+from dlc_basis_functions import load_dlc, load_dlc_training
 
 
 def get_video_frame(video_path, frame_number):
@@ -40,28 +41,29 @@ def create_frame_array(dlc_data, frame_number):
     return xy, filtered_dict.keys()
 
 
-main_path = Path(r'C:\Users\User\Documents\Work\usb1\Subjects')
+main_path = Path('/media/guido/data/Flatiron/mainenlab/Subjects')
 SES = {
-    'A': main_path.joinpath(Path('ZM_1735/2019-08-01/001')),
-    'B': main_path.joinpath(Path('ibl_witten_04/2019-08-04/002')),
-    'C': main_path.joinpath(Path('ZM_1736/2019-08-09/004')),
-    'D': main_path.joinpath(Path('ibl_witten_04/2018-08-11/001')),
-    'E': main_path.joinpath(Path('KS005/2019-08-29/001')),
-    'F': main_path.joinpath(Path('KS005/2019-08-30/001')),
+    'A': main_path.joinpath(Path('ZM_1747/2019-07-10/001')),
+    'B': main_path.joinpath(Path('ZM_1748/2019-07-10/001')),
 }
 
 # select a session from the bunch
-sid = 'B'
+sid = 'A'
 ses_path = main_path / Path(SES[sid])
 
 # read in the alf objects
-left_camera = load_dlc(ses_path, camera='left')
+left_camera = load_dlc_training(ses_path)
+#left_camera = load_dlc(ses_path, camera='left')
+
+"""
 meta_path = ses_path / 'alf' / '_ibl_leftCamera.dlc.metadata.json'
 with open(meta_path) as json_data:
     dlc_meta = json.load(json_data)
 
 raw_vid_meta = ses_path / 'raw_video_data' / '_iblrig_leftCamera.raw.mp4'
 dlc_columns = dlc_meta['columns']
+"""
+raw_vid_meta = glob(str(ses_path / 'raw_video_data' / '_iblrig_leftCamera.raw*.mp4'))[0]
 
 # Loop through frames and produce png:
 # Randomly sample frames:

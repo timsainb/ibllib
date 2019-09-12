@@ -99,25 +99,44 @@ def px_to_mm(dlc_dict, width_mm=66, height_mm=54):
 
 def load_dlc_training(folder_path):
     """
-    Function definition
+    Load in DLC output for a behavioral training session. Extract timestamps from raw BPod data
     """
 
     # Load in dlc dictionary
     dlc_dict = alf.io.load_object(glob(join(folder_path, 'alf', '_ibl_leftCamera.dlc.*.npy'))[0])
 
-    # Load in timestamps from BPod and interpolate in between trials
+    # Load in BPod data
     bpod_data = raw_data_loaders.load_data(folder_path)
-    timestamps = np.array(bpod_data[1]['behavior_data']['Events timestamps']['Port1In'])
+
+    # Check first couple of trials and determine in which trial camera timestamps begin
+    for trial in range(len(bpod_data)):
+        if 'Port1In' in bpod_data[trial]['behavior_data']['Events timestamps']:
+            timestamps = np.array(
+                    bpod_data[trial]['behavior_data']['Events timestamps']['Port1In'])
+            first_trial = trial
+            break
+    if 'Port1In' not in bpod_data[trial]['behavior_data']['Events timestamps']:
+        raise Exception('No camera timestamps found in BPod data')
+
+    # Calculate frame rate
     frame_diff = np.mean(np.diff(timestamps))
-    for i in range(2, len(bpod_data)):
+
+    # Loop over trials and get camera timestamps
+    for i in range(first_trial+1, len(bpod_data)):
         this_trial = np.array(bpod_data[i]['behavior_data']['Events timestamps']['Port1In'])
 
-        # Interpolate timestamps in between trials
+        # Interpolate the timestamps in the 'dead time' in between trials during which
+        # Bpod does not log camera timestamps
         interp = np.arange(timestamps[-1] + frame_diff,
                            this_trial[0] - (frame_diff / 2),
                            frame_diff)
         timestamps = np.concatenate((timestamps, interp, this_trial))
 
+    # Cut off video frames that don't have corresponding bpod timestamps at end of session
+    for key in list(dlc_dict.keys()):
+        dlc_dict[key] = dlc_dict[key][0:np.size(timestamps)]
+
+    # Add to dictionary
     dlc_dict['timestamps'] = timestamps
     dlc_dict['camera'] = 'left'
     dlc_dict['units'] = 'px'
