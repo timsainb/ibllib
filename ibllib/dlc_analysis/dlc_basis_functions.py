@@ -25,13 +25,9 @@ def load_dlc(folder_path, camera='left'):
     """
 
     # Load in DLC data
-    dlc_dict = alf.io.load_object(join(folder_path, 'alf'), '_ibl_%sCamera' % camera)
+    dlc_dict = alf.io.load_object(folder_path, '_ibl_%sCamera' % camera)
     dlc_dict['camera'] = camera
     dlc_dict['units'] = 'px'
-
-    # Hard-coded hack because extraction of timestamps was wrong
-    if camera == 'left':
-        camera = 'body'
 
     # Load in FPGA timestamps
     timestamps = np.load(join(folder_path, 'raw_video_data',
@@ -70,28 +66,24 @@ def load_events(folder_path):
     return choice, feedback_type
 
 
-def px_to_mm(dlc_dict, width_mm=66, height_mm=54):
+def px_to_mm(dlc_dict, width_mm=66, height_mm=54, resolution=[1280, 1024]):
     """
     Transform pixel values to millimeter
 
     Parameters
     ----------
-    width_mm:  the width of the video feed in mm
-    height_mm: the height of the video feed in mm
+    width_mm:   the width of the video feed in mm
+    height_mm:  the height of the video feed in mm
+    resolution: the resolution of the screen in pixels
+                Should be [1280, 1024] for the left camera and [640, 512] for the right and body
     """
-
-    # Set pixel dimensions for different cameras
-    if dlc_dict['camera'] == 'left':
-        px_dim = [1280, 1024]
-    elif dlc_dict['camera'] == 'right' or dlc_dict['camera'] == 'body':
-        px_dim = [640, 512]
 
     # Transform pixels into mm
     for key in list(dlc_dict.keys()):
         if key[-1] == 'x':
-            dlc_dict[key] = dlc_dict[key] * (width_mm / px_dim[0])
+            dlc_dict[key] = dlc_dict[key] * (width_mm / resolution[0])
         if key[-1] == 'y':
-            dlc_dict[key] = dlc_dict[key] * (height_mm / px_dim[1])
+            dlc_dict[key] = dlc_dict[key] * (height_mm / resolution[1])
     dlc_dict['units'] = 'mm'
 
     return dlc_dict
