@@ -8,63 +8,80 @@ List of analysis functions for DLC
 """
 
 import numpy as np
-from scipy import signal
-from scipy.signal import butter, filtfilt
+from scipy import signal, stats
+from scipy.signal import butter, filtfilt, stft
+import sys
+sys.path.insert(0, '/home/guido/Projects/ibllib/ibllib/dlc_analysis')
+from dlc_basis_functions import px_to_mm
 
 
-def butter_highpass(cutoff, fs, order=5):
+def butter_filter(data, cutoff, fs, ftype='lowpass', order=5):
     nyq = 0.5 * fs
     normal_cutoff = cutoff / nyq
-    b, a = signal.butter(order, normal_cutoff, btype='high', analog=False)
-    return b, a
-
-
-def butter_highpass_filter(data, cutoff, fs, order=5):
-    b, a = butter_highpass(cutoff, fs, order=order)
+    b, a = signal.butter(order, normal_cutoff, btype=ftype, analog=False)
     y = signal.filtfilt(b, a, data)
     return y
 
 
-def lick_times(dlc_dict, dlc_data_camera_2=None):
+def lick_times(dlc_dict, lick_threshold=1, bout_threshold=0.5):
     """
     Lick onset and offset frames.  If more than one dict is provided licks detected
     by one or the other are counted.
     :param dlc_data: tuple of tongue x and y positions.
     If provided only contact with tube is counted as a lick.
-    :param dlc_data_camera_2: tuple of tongue x and y positions from other camera angle
 
     :return: tuple of lick onset and offset frames
     """
-    #  Extract tongue xy position from dictionary
-    tongue_end_l = (dlc_dict['tongue_end_l_x'], dlc_dict['tongue_end_l_y'])
-    tongue_end_r = (dlc_dict['tongue_end_r_x'], dlc_dict['tongue_end_r_y'])
 
-    # Fit polynomal to points to find direction of largest movement (eg licking)
-    z_l = np.polyfit(tongue_end_l[0], tongue_end_l[1], 1)
-    z_r = np.polyfit(tongue_end_r[0], tongue_end_r[1], 1)
+    # Check if DLC output is in mm
+    if ('units' not in dlc_dict.keys()) or (dlc_dict['units'] == 'px'):
+        dlc_dict = px_to_mm(dlc_dict)
 
-    # Project each point to the fitted lines
-    b = -(-(1/z_l[0]) * tongue_end_l[0] - tongue_end_l[1])
-    proj_l = (b - z_l[1]) / (z_l[0] + (1/z_l[0]))
-    b = -(-(1/z_l[0]) * tongue_end_r[0] - tongue_end_r[1])
-    proj_r = (b - z_r[1]) / (z_r[0] + (1/z_r[0]))
+    # Get distances of tongue points to tube points
+    tongue_x = np.mean([dlc_dict['tongue_end_l_x'], dlc_dict['tongue_end_r_x']], axis=0)
+    tongue_y = np.mean([dlc_dict['tongue_end_l_y'], dlc_dict['tongue_end_r_y']], axis=0)
+    tube_x = np.mean([dlc_dict['tube_top_x'], dlc_dict['tube_bottom_x']], axis=0)
+    tube_y = np.mean([dlc_dict['tube_top_y'], dlc_dict['tube_bottom_y']], axis=0)
+    dist = np.sqrt(((tongue_x - tube_x)**2) + ((tongue_y - tube_y)**2))
 
-    # High-pass filter the traces
-    fs = 1 / np.mean(np.diff(dlc_dict['timestamps']))
-    filt_l = butter_highpass_filter(proj_l, 10, fs, 1)
-    filt_r = butter_highpass_filter(proj_r, 10, fs, 1)
+    # Get lick times
+    all_lick = dist < lick_threshold
+    licks = []
+    for l in [i for i, x in enumerate(all_lick) if x]:
+        if all_lick[l-1] == 0:
+            licks = licks + [l]
+    lick_times = dlc_dict['times'][licks]
 
-    # Detect peaks in traces
-    peak_l = signal.find_peaks(filt_l, threshold=np.std(filt_l)/3)[0]
-    peak_r = signal.find_peaks(filt_r, threshold=np.std(filt_r)/3)[0]
+    # Calculate power spectral densitity to get licking bouts
+    sampling_rate = 1/np.mean(np.diff(dlc_dict['times']))
+    freqs, time_filt, spec = signal.spectrogram(dist, fs=sampling_rate,
+                                                nperseg=int(1*sampling_rate),
+                                                noverlap=int(0.25*sampling_rate))
 
-    # Get timestamps of licks detected in both channels
-    licks = peak_l[np.in1d(peak_l, peak_r)]
-    licks = dlc_dict['timestamps'][licks]
-    return licks
+    # Define licking bouts as times at which the spectral density of frequencies between 6 and 12Hz
+    # are higher than the bout_threshold
+    power = np.mean(spec[(freqs > 6) & (freqs < 8)], axis=0)
+    licking_bout_times = time_filt[power > np.std(power)*bout_threshold]
+    licking_bout_times = licking_bout_times + dlc_dict['times'][0]
+
+    return lick_times, licking_bout_times, dist
 
 
-def sniff_times(dlc_dict):
+def blink_times(dlc_dict, threshold=0.9):
+    pupil_likelihood = np.mean([dlc_dict['pupil_top_r_likelihood'],
+                                dlc_dict['pupil_left_r_likelihood'],
+                                dlc_dict['pupil_right_r_likelihood'],
+                                dlc_dict['pupil_bottom_r_likelihood']], axis=0)
+    all_blink = pupil_likelihood < threshold
+    blinks = []
+    for l in [i for i, x in enumerate(all_blink) if x]:
+        if all_blink[l-1] == 0:
+            blinks = blinks + [l]
+    blink_times = dlc_dict['times'][blinks]
+    return blink_times, pupil_likelihood
+
+
+def sniff_times(dlc_dict, threshold=0.5):
     '''
     Sniff onset times.
     :param dlc_dict: Dict containing the following keys:
@@ -72,16 +89,26 @@ def sniff_times(dlc_dict):
     :return: 1D array of sniff onset times
     '''
 
-    dis = np.sqrt(((dlc_dict['nostril_top_x'] - dlc_dict['nostril_bottom_x'])**2)
-                  + ((dlc_dict['nostril_top_y'] - dlc_dict['nostril_bottom_y'])**2))
-    win = 4 * dlc_dict['sampling_rate']
+    # Check if DLC output is in mm
+    if ('units' not in dlc_dict.keys()) or (dlc_dict['units'] == 'px'):
+        dlc_dict = px_to_mm(dlc_dict)
 
-    freqs, time, spec = signal.spectrogram(dis, fs=dlc_dict['sampling_rate'],
-                                           nperseg=int(win))
+    # Calculate distance between nostrils
+    dist = np.sqrt(((dlc_dict['nostril_top_x'] - dlc_dict['nostril_bottom_x'])**2)
+                   + ((dlc_dict['nostril_top_y'] - dlc_dict['nostril_bottom_y'])**2))
 
-    freqs_w, psd = signal.welch(dis, dlc_dict['sampling_rate'], nperseg=win)
+    # Calculate power spectral densitity to get licking bouts
+    sampling_rate = 1/np.mean(np.diff(dlc_dict['times']))
+    freqs, time_filt, spec = signal.spectrogram(dist, fs=sampling_rate,
+                                                nperseg=int(1*sampling_rate),
+                                                noverlap=int(0.5*sampling_rate))
 
-    power = np.mean(spec[(freqs > 28) & (freqs < 30)], axis=0)
+    # Define licking bouts as times at which the spectral density of frequencies between 6 and 12Hz
+    # are higher than the bout_threshold
+    power = np.mean(spec[(freqs > 7) & (freqs < 12)], axis=0)
+    sniffing_times = time_filt[power > np.std(power)*threshold]
+    sniffing_times = sniffing_times + dlc_dict['times'][0]
+    return sniffing_times
 
 
 def fit_circle(x, y):
@@ -108,13 +135,13 @@ def fit_circle(x, y):
 
 def pupil_features(dlc_dict):
     vec_x = [dlc_dict['pupil_left_r_x'], dlc_dict['pupil_right_r_x'],
-             dlc_dict['pupil_top_r_x']]
+             dlc_dict['pupil_top_r_x'], dlc_dict['pupil_bottom_r_x']]
     vec_y = [dlc_dict['pupil_left_r_y'], dlc_dict['pupil_right_r_y'],
-             dlc_dict['pupil_top_r_y']]
-    x = np.zeros(len(vec_x[0]))
-    y = np.zeros(len(vec_x[0]))
-    diameter = np.zeros(len(vec_x[0]))
-    for i in range(len(vec_x[0])):
+             dlc_dict['pupil_top_r_y'], dlc_dict['pupil_bottom_r_y']]
+    x = np.zeros(np.size(vec_x[0]))
+    y = np.zeros(np.size(vec_x[0]))
+    diameter = np.zeros(np.size(vec_x[0]))
+    for i in range(np.size(vec_x[0])):
         try:
             x[i], y[i], R = fit_circle([vec_x[0][i], vec_x[1][i], vec_x[2][i]],
                                        [vec_y[0][i], vec_y[1][i], vec_y[2][i]])
@@ -123,4 +150,5 @@ def pupil_features(dlc_dict):
             x[i] = np.nan
             y[i] = np.nan
             diameter = np.nan
+
     return x, y, diameter
