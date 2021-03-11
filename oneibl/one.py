@@ -1008,7 +1008,7 @@ class OneAlyx(OneAbstract):
             url_ch,
             username=self._par.HTTP_DATA_SERVER_LOGIN,
             password=self._par.HTTP_DATA_SERVER_PWD,
-            cache_dir=target_dir, clobber=True, offline=False, return_md5=False))
+            cache_dir=target_dir, clobber=True, return_md5=False))
         ch_local_path = alfio.remove_uuid_file(ch_local_path)
         ch_local_path_renamed = ch_local_path.with_suffix('.chopped.ch')
         ch_local_path.rename(ch_local_path_renamed)
@@ -1049,7 +1049,7 @@ class OneAlyx(OneAbstract):
             url_cbin,
             username=self._par.HTTP_DATA_SERVER_LOGIN,
             password=self._par.HTTP_DATA_SERVER_PWD,
-            cache_dir=target_dir, clobber=True, offline=False, return_md5=False,
+            cache_dir=target_dir, clobber=True, return_md5=False,
             chunks=(first_byte, n_bytes))
         cbin_local_path = alfio.remove_uuid_file(cbin_local_path)
         cbin_local_path_renamed = cbin_local_path.with_suffix(
