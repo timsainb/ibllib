@@ -168,5 +168,11 @@ def _find_files(root_dir):
 # Main functions
 # -------------------------------------------------------------------------------------------------
 
+def _make_sessions_db(root_dir, db_name):
+    pass
+
+def _make_datasets_db(root_dir, db_name, ses_rel_path):
+    pass
+
 def make_parquet_db(root_dir, db_name):
     return path_to_session.pqt, path_to_datasets.pqt
