@@ -14,6 +14,7 @@ import re
 
 import numpy as np
 
+from alf.folders import session_path
 
 
 # -------------------------------------------------------------------------------------------------
@@ -86,31 +87,34 @@ def _pqt_metadata(pqt, **kwargs):
 # Parsing util functions
 # -------------------------------------------------------------------------------------------------
 
-def _parse_session_path(session):
-    """Parse a session path."""
-    m = _session_regex().match(session)
+def _parse_rel_ses_path(rel_ses_path):
+    """Parse a relative session path."""
+    m = SESSION_REGEX.match(str(rel_ses_path))
     if not m:
-        raise ValueError("The session path `%s` is invalid." % session)
+        raise ValueError("The relative session path `%s` is invalid." % rel_ses_path)
     return {n: m.group(n) for n in ('lab', 'subject', 'date', 'number')}
 
 
-def _parse_file_path(file_path):
-    """Parse a file path."""
-    m = _file_regex().match(file_path)
-    if not m:
-        raise ValueError("The file path `%s` is invalid." % file_path)
-    return {n: m.group(n) for n in ('lab', 'subject', 'date', 'number', 'filename')}
+# def _parse_file_path(file_path):
+#     """Parse a file path."""
+#     m = FILE_REGEX.match(str(file_path))
+#     if not m:
+#         raise ValueError("The file path `%s` is invalid." % file_path)
+#     return {n: m.group(n) for n in ('lab', 'subject', 'date', 'number', 'filename')}
 
 
-def _get_file_rel_path(file_path):
-    """Get the lab/Subjects/subject/... part of a file path."""
-    file_path = str(file_path).replace('\\', '/')
-    # Find the relative part of the file path.
-    i = file_path.index('/Subjects')
-    if '/' not in file_path[:i]:
-        return file_path
-    i = file_path[:i].rindex('/') + 1
-    return file_path[i:]
+# def _get_file_rel_path(file_path):
+#     """Get the lab/Subjects/subject/... part of a file path."""
+#     file_path = str(file_path).replace('\\', '/')
+#     # Find the relative part of the file path.
+#     i = file_path.index('/Subjects')
+#     if '/' not in file_path[:i]:
+#         return file_path
+#     i = file_path[:i].rindex('/') + 1
+#     return file_path[i:]
+
+def _get_full_sess_path(file_path):
+    return session_path(file_path)
 
 
 
@@ -142,14 +146,14 @@ def _is_file_in_session_dir(path):
 
 def _find_sessions(root_dir):
     """Iterate over all session directories found in a root directory."""
-    for p in walk(root_dir):
+    for p in _walk(root_dir):
         if _is_session_dir(p):
             yield p
 
 
 def _find_session_files(root_dir):
     """Iterate over all files within session directories found within a root directory."""
-    for p in walk(root_dir):
+    for p in _walk(root_dir):
         if _is_file_in_session_dir(p):
             yield p
 
