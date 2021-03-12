@@ -48,7 +48,7 @@ def _pattern_to_regex(pattern):
     """Convert a path pattern with {...} into a regex."""
     return _compile(re.sub(r'\{(\w+)\}', r'(?P<\1>[a-zA-Z0-9\_\-\.]+)', pattern))
 
-SESSION_PATTERN = "^{lab}/Subjects/{subject}/{date}/{number}/$"
+SESSION_PATTERN = "^{lab}/Subjects/{subject}/{date}/{number}/?$"
 SESSION_REGEX = _pattern_to_regex(SESSION_PATTERN)
 
 FILE_PATTERN = "^{lab}/Subjects/{subject}/{date}/{number}/alf/{filename}$"
@@ -103,15 +103,16 @@ def _parse_rel_ses_path(rel_ses_path):
 #     return {n: m.group(n) for n in ('lab', 'subject', 'date', 'number', 'filename')}
 
 
-# def _get_file_rel_path(file_path):
-#     """Get the lab/Subjects/subject/... part of a file path."""
-#     file_path = str(file_path).replace('\\', '/')
-#     # Find the relative part of the file path.
-#     i = file_path.index('/Subjects')
-#     if '/' not in file_path[:i]:
-#         return file_path
-#     i = file_path[:i].rindex('/') + 1
-#     return file_path[i:]
+def _get_file_rel_path(file_path):
+    """Get the lab/Subjects/subject/... part of a file path."""
+    file_path = str(file_path).replace('\\', '/')
+    # Find the relative part of the file path.
+    i = file_path.index('/Subjects')
+    if '/' not in file_path[:i]:
+        return file_path
+    i = file_path[:i].rindex('/') + 1
+    return file_path[i:]
+
 
 def _get_full_sess_path(file_path):
     return session_path(file_path)

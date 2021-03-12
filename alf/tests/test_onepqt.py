@@ -28,7 +28,10 @@ class TestsONEParquet(unittest.TestCase):
     def test_walk(self):
         full_ses_paths = list(apt._find_sessions(self.tmpdir))
         self.assertTrue(len(full_ses_paths) >= 1)
-        self.assertTrue(str(full_ses_paths[0]).endswith(self.rel_ses_path[:-1]))
+        full_path = str(full_ses_paths[0])
+        self.assertTrue(full_path.endswith(self.rel_ses_path[:-1]))
+        rel_path = apt._get_file_rel_path(full_path)
+        self.assertEqual(apt._parse_rel_ses_path(rel_path), self.ses_info)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir)
