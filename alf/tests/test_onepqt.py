@@ -64,9 +64,9 @@ class TestsONEParquet(unittest.TestCase):
 
     def test_datasets_df(self):
         df = apt._make_datasets_df(self.tmpdir, 'mydb', self.rel_ses_path)
-        # self.assertEqual(df.loc[0].to_dict(), self.ses_info)
-        print()
-        print(df)
+        dset_info = df.loc[0].to_dict()
+        self.assertEqual(dset_info['session_path'], self.rel_ses_path[:-1])
+        self.assertEqual(dset_info['rel_path'], self.rel_ses_files[0])
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir)
