@@ -8,11 +8,16 @@
 # Imports
 # -------------------------------------------------------------------------------------------------
 
+import datetime
+import json
 import os
 from pathlib import Path
 import re
 
 import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from alf.folders import session_path
 
@@ -60,26 +65,66 @@ FILE_REGEX = _pattern_to_regex(FILE_PATTERN)
 # Parquet util functions
 # -------------------------------------------------------------------------------------------------
 
-def _pqt_create(path, columns, rows=None):
-    pass
+def df2pqt(filename, df, **metadata):
+    """
+    Save a Dataframe to a parquet file with some optional metadata.
+    :param filename:
+    :param df:
+    :param metadata:
+    :return:
+    """
+
+    # cf https://towardsdatascience.com/saving-metadata-with-dataframes-71f51f558d8e
+
+    # from dataframe to parquet
+    table = pa.Table.from_pandas(df)
+
+    # Add user metadata
+    table = table.replace_schema_metadata({
+        'one_metadata': json.dumps(metadata).encode(),
+        **table.schema.metadata
+    })
+
+    # Save to parquet.
+    pq.write_table(table, filename)
 
 
-def _pqt_extend(pqt, rows):
-    pass
+def pqt2df(filename):
+    """
+    Load a parquet file to a Dataframe, and return the optional metadata as well.
+    :param filename:
+    :return:
+    """
+
+    table = pq.read_table(filename)
+    metadata = json.loads(table.schema.metadata['one_metadata'.encode()])
+    df = table.to_pandas()
+    return df, metadata
 
 
-def _pqt_update(pqt, row_idx, **kwargs):
-    pass
+
+def date2isostr(adate):
+    # HACK: from ibllib.time import date2isostr fails??
+
+    # NB this is intended for scalars or small list. See the ciso8601 pypi module instead for
+    # a performance implementation
+    if type(adate) is datetime.date:
+        adate = datetime.datetime.fromordinal(adate.toordinal())
+    return datetime.datetime.isoformat(adate)
 
 
-def _pqt_metadata(pqt, **kwargs):
-    '''
-    date created
-    date last updated
-    origin
-        path to full directory
-        computer name / db name
-    '''
+
+def _metadata(origin):
+    """
+    Metadata dictionary for Parquet files.
+
+    :param origin: path to full directory, or computer name / db name
+    """
+    return {
+        'date_created': date2isostr(datetime.datetime.now()),
+        'origin': origin,
+    }
+
 
 
 

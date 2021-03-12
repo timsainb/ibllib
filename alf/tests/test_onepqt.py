@@ -3,6 +3,9 @@ import tempfile
 from pathlib import Path
 import shutil
 
+import pandas as pd
+from pandas.testing import assert_frame_equal
+
 import alf.onepqt as apt
 
 
@@ -32,6 +35,22 @@ class TestsONEParquet(unittest.TestCase):
         self.assertTrue(full_path.endswith(self.rel_ses_path[:-1]))
         rel_path = apt._get_file_rel_path(full_path)
         self.assertEqual(apt._parse_rel_ses_path(rel_path), self.ses_info)
+
+    def test_parquet(self):
+        # Test data
+        columns = ('colA', 'colB')
+        rows = [('a1', 'b1'), ('a2', 'b2')]
+        metadata = apt._metadata('dbname')
+        filename = self.tmpdir / 'mypqt.pqt'
+
+        # Save parquet file.
+        df = pd.DataFrame(rows, columns=columns)
+        apt.df2pqt(filename, df, **metadata)
+
+        # Load parquet file
+        df2, metadata2 = apt.pqt2df(filename)
+        assert_frame_equal(df, df2)
+        self.assertTrue(metadata == metadata2)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir)
