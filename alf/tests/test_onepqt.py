@@ -11,7 +11,8 @@ import alf.onepqt as apt
 
 class TestsONEParquet(unittest.TestCase):
     rel_ses_path = "mylab/Subjects/mysub/2021-02-28/001/"
-    ses_info = {'lab': 'mylab', 'subject': 'mysub', 'date': '2021-02-28', 'number': '001'}
+    ses_info = {
+        'lab': 'mylab', 'subject': 'mysub', 'date': '2021-02-28', 'number': int('001'), 'eid': None}
 
     def setUp(self) -> None:
         # root path:
@@ -51,6 +52,10 @@ class TestsONEParquet(unittest.TestCase):
         df2, metadata2 = apt.pqt2df(filename)
         assert_frame_equal(df, df2)
         self.assertTrue(metadata == metadata2)
+
+    def test_sessions_df(self):
+        df = apt._make_sessions_df(self.tmpdir, 'mydb')
+        self.assertEqual(df.loc[0].to_dict(), self.ses_info)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir)

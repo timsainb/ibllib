@@ -19,6 +19,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+# import brainbox
 from alf.folders import session_path
 
 
@@ -137,7 +138,10 @@ def _parse_rel_ses_path(rel_ses_path):
     m = SESSION_REGEX.match(str(rel_ses_path))
     if not m:
         raise ValueError("The relative session path `%s` is invalid." % rel_ses_path)
-    return {n: m.group(n) for n in ('lab', 'subject', 'date', 'number')}
+    out = {n: m.group(n) for n in ('lab', 'subject', 'date', 'number')}
+    out['number'] = int(out['number'])
+    out['eid'] = None  # TODO
+    return out
 
 
 # def _parse_file_path(file_path):
@@ -214,11 +218,20 @@ def _find_files(root_dir):
 # Main functions
 # -------------------------------------------------------------------------------------------------
 
-def _make_sessions_db(root_dir, db_name):
+def _make_sessions_df(root_dir, db_name):
+    rows = []
+    for full_path in  _find_sessions(root_dir):
+        rel_path = _get_file_rel_path(full_path)
+        ses_info = _parse_rel_ses_path(rel_path)
+        rows.append(ses_info)
+    df = pd.DataFrame(rows, columns=SESSIONS_COLUMNS)
+    return df
+
+
+
+def _make_datasets_df(root_dir, db_name, ses_rel_path):
     pass
 
-def _make_datasets_db(root_dir, db_name, ses_rel_path):
-    pass
 
 def make_parquet_db(root_dir, db_name):
     return path_to_session.pqt, path_to_datasets.pqt
