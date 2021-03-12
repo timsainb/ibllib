@@ -37,6 +37,8 @@ SESSIONS_COLUMNS = (
 
 DATASETS_COLUMNS = (
     'eid',
+    'session_eid',
+    'session_path',
     'rel_path',
     'dataset_type',
     'file_size',
@@ -103,7 +105,6 @@ def pqt2df(filename):
     return df, metadata
 
 
-
 def date2isostr(adate):
     # HACK: from ibllib.time import date2isostr fails??
 
@@ -112,7 +113,6 @@ def date2isostr(adate):
     if type(adate) is datetime.date:
         adate = datetime.datetime.fromordinal(adate.toordinal())
     return datetime.datetime.isoformat(adate)
-
 
 
 def _metadata(origin):
@@ -163,9 +163,8 @@ def _get_file_rel_path(file_path):
     return file_path[i:]
 
 
-def _get_full_sess_path(file_path):
+def _get_full_ses_path(file_path):
     return session_path(file_path)
-
 
 
 # -------------------------------------------------------------------------------------------------
@@ -201,17 +200,25 @@ def _find_sessions(root_dir):
             yield p
 
 
-def _find_session_files(root_dir):
-    """Iterate over all files within session directories found within a root directory."""
-    for p in _walk(root_dir):
-        if _is_file_in_session_dir(p):
-            yield p
+def _find_session_files(full_ses_path):
+    """Iterate over all files in a session, and yield relative dataset paths."""
+    for p in _walk(full_ses_path):
+        if not p.is_dir() and p.name not in EXCLUDED_FILENAMES:
+            yield p.relative_to(full_ses_path)
 
 
-def _find_files(root_dir):
-    # return list of tuples
-    pass
-
+def _get_dataset_info(full_ses_path, rel_dset_path, ses_eid=None):
+    rel_ses_path = _get_file_rel_path(full_ses_path)
+    return {
+        'eid': None,  # TODO
+        'session_eid': ses_eid,
+        'session_path': rel_ses_path,
+        'rel_path': rel_dset_path,
+        'dataset_type': None,  # TODO,
+        'file_size': 0,  # TODO
+        'md5': None,  # TODO,
+        'exists': True,
+    }
 
 
 # -------------------------------------------------------------------------------------------------
@@ -228,9 +235,14 @@ def _make_sessions_df(root_dir, db_name):
     return df
 
 
-
-def _make_datasets_df(root_dir, db_name, ses_rel_path):
-    pass
+def _make_datasets_df(root_dir, db_name, rel_ses_path):
+    rows = []
+    for rel_dset_path in _find_session_files(root_dir / rel_ses_path):
+        full_ses_path = root_dir / rel_ses_path
+        file_info = _get_dataset_info(full_ses_path, rel_dset_path)
+        rows.append(file_info)
+    df = pd.DataFrame(rows, columns=DATASETS_COLUMNS)
+    return df
 
 
 def make_parquet_db(root_dir, db_name):

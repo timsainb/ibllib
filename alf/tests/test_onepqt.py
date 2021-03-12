@@ -13,6 +13,7 @@ class TestsONEParquet(unittest.TestCase):
     rel_ses_path = "mylab/Subjects/mysub/2021-02-28/001/"
     ses_info = {
         'lab': 'mylab', 'subject': 'mysub', 'date': '2021-02-28', 'number': int('001'), 'eid': None}
+    rel_ses_files = [Path('alf/spikes.times.npy')]
 
     def setUp(self) -> None:
         # root path:
@@ -27,7 +28,7 @@ class TestsONEParquet(unittest.TestCase):
 
     def test_parse(self):
         self.assertEqual(apt._parse_rel_ses_path(self.rel_ses_path), self.ses_info)
-        self.assertTrue(apt._get_full_sess_path(self.full_ses_path).endswith(self.rel_ses_path[:-1]))
+        self.assertTrue(apt._get_full_ses_path(self.full_ses_path).endswith(self.rel_ses_path[:-1]))
 
     def test_walk(self):
         full_ses_paths = list(apt._find_sessions(self.tmpdir))
@@ -36,6 +37,10 @@ class TestsONEParquet(unittest.TestCase):
         self.assertTrue(full_path.endswith(self.rel_ses_path[:-1]))
         rel_path = apt._get_file_rel_path(full_path)
         self.assertEqual(apt._parse_rel_ses_path(rel_path), self.ses_info)
+
+    def test_walk_session(self):
+        ses_files = list(apt._find_session_files(self.full_ses_path))
+        self.assertEqual(ses_files, self.rel_ses_files)
 
     def test_parquet(self):
         # Test data
@@ -56,6 +61,12 @@ class TestsONEParquet(unittest.TestCase):
     def test_sessions_df(self):
         df = apt._make_sessions_df(self.tmpdir, 'mydb')
         self.assertEqual(df.loc[0].to_dict(), self.ses_info)
+
+    def test_datasets_df(self):
+        df = apt._make_datasets_df(self.tmpdir, 'mydb', self.rel_ses_path)
+        # self.assertEqual(df.loc[0].to_dict(), self.ses_info)
+        print()
+        print(df)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir)
