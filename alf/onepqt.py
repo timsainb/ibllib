@@ -3,24 +3,20 @@
 """Construct Parquet database from local file system."""
 
 
-
 # -------------------------------------------------------------------------------------------------
 # Imports
 # -------------------------------------------------------------------------------------------------
 
 import datetime
 import json
-import os
 import os.path as op
 from pathlib import Path
 import re
 
-import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-# import brainbox
 from alf.folders import session_path
 
 
@@ -49,20 +45,22 @@ DATASETS_COLUMNS = (
 
 EXCLUDED_FILENAMES = ('.DS_Store', '.one_root')
 
+
 def _compile(r):
     r = r.replace('/', r'\/')
     return re.compile(r)
 
+
 def _pattern_to_regex(pattern):
     """Convert a path pattern with {...} into a regex."""
     return _compile(re.sub(r'\{(\w+)\}', r'(?P<\1>[a-zA-Z0-9\_\-\.]+)', pattern))
+
 
 SESSION_PATTERN = "{lab}/Subjects/{subject}/{date}/{number}"
 SESSION_REGEX = _pattern_to_regex('^%s/?$' % SESSION_PATTERN)
 
 FILE_PATTERN = "^{lab}/Subjects/{subject}/{date}/{number}/alf/{filename}$"
 FILE_REGEX = _pattern_to_regex(FILE_PATTERN)
-
 
 
 # -------------------------------------------------------------------------------------------------
@@ -122,8 +120,6 @@ def _metadata(origin):
         'date_created': date2isostr(datetime.datetime.now()),
         'origin': str(origin),
     }
-
-
 
 
 # -------------------------------------------------------------------------------------------------
@@ -235,7 +231,7 @@ def _get_dataset_info(full_ses_path, rel_dset_path, ses_eid=None):
 
 def _make_sessions_df(root_dir):
     rows = []
-    for full_path in  _find_sessions(root_dir):
+    for full_path in _find_sessions(root_dir):
         rel_path = _get_file_rel_path(full_path)
         ses_info = _parse_rel_ses_path(rel_path)
         rows.append(ses_info)
@@ -259,7 +255,7 @@ def _extend_datasets_df(df, root_dir, rel_ses_path):
 def _make_datasets_df(root_dir):
     df = None
     # Go through all found sessions.
-    for full_path in  _find_sessions(root_dir):
+    for full_path in _find_sessions(root_dir):
         rel_ses_path = _get_file_rel_path(full_path)
         # Append the datasets of each session.
         df = _extend_datasets_df(df, root_dir, rel_ses_path)

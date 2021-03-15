@@ -35,7 +35,8 @@ class TestsONEParquet(unittest.TestCase):
 
     def test_parse(self):
         self.assertEqual(apt._parse_rel_ses_path(self.rel_ses_path), self.ses_info)
-        self.assertTrue(apt._get_full_ses_path(self.full_ses_path).endswith(self.rel_ses_path[:-1]))
+        self.assertTrue(
+            apt._get_full_ses_path(self.full_ses_path).endswith(self.rel_ses_path[:-1]))
 
     def test_walk(self):
         full_ses_paths = list(apt._find_sessions(self.tmpdir))
