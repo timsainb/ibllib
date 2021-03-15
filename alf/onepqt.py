@@ -92,6 +92,8 @@ def df2pqt(filename, df, **metadata):
     # Save to parquet.
     pq.write_table(table, filename)
 
+    print(f"{filename} written.")
+
 
 def pqt2df(filename):
     """
@@ -107,13 +109,7 @@ def pqt2df(filename):
 
 
 def date2isostr(adate):
-    # HACK: from ibllib.time import date2isostr fails??
-
-    # NB this is intended for scalars or small list. See the ciso8601 pypi module instead for
-    # a performance implementation
-    if type(adate) is datetime.date:
-        adate = datetime.datetime.fromordinal(adate.toordinal())
-    return datetime.datetime.isoformat(adate)
+    return adate.strftime('%Y-%m-%d %H:%M')
 
 
 def _metadata(origin):
@@ -124,7 +120,7 @@ def _metadata(origin):
     """
     return {
         'date_created': date2isostr(datetime.datetime.now()),
-        'origin': origin,
+        'origin': str(origin),
     }
 
 
@@ -222,10 +218,10 @@ def _get_dataset_info(full_ses_path, rel_dset_path, ses_eid=None):
     file_size = Path(full_dset_path).stat().st_size
     ses_eid = ses_eid or _ses_eid(rel_ses_path)
     return {
-        'eid': op.join(rel_ses_path, rel_dset_path),
-        'session_eid': ses_eid,
-        'session_path': rel_ses_path,
-        'rel_path': rel_dset_path,
+        'eid': str(op.join(rel_ses_path, rel_dset_path)),
+        'session_eid': str(ses_eid),
+        'session_path': str(rel_ses_path),
+        'rel_path': str(rel_dset_path),
         'dataset_type': '.'.join(str(rel_dset_path).split('/')[-1].split('.')[:-1]),
         'file_size': file_size,
         'md5': None,  # TODO,
@@ -270,8 +266,27 @@ def _make_datasets_df(root_dir):
     return df
 
 
-def make_parquet_db(root_dir, db_name):
+def make_parquet_db(root_dir, out_dir=None):
+    root_dir = Path(root_dir).resolve()
+
+    # Make the dataframes.
     df_ses = _make_sessions_df(root_dir)
     df_dsets = _make_datasets_df(root_dir)
 
-    # return path_to_session.pqt, path_to_datasets.pqt
+    # Output directory.
+    out_dir = Path(out_dir or root_dir)
+    assert out_dir.is_dir()
+    assert out_dir.exists()
+
+    # Parquet files to save.
+    fn_ses = out_dir / 'sessions.pqt'
+    fn_dsets = out_dir / 'datasets.pqt'
+
+    # Parquet metadata.
+    metadata = _metadata(root_dir)
+
+    # Save the Parquet files.
+    df2pqt(fn_ses, df_ses, **metadata)
+    df2pqt(fn_dsets, df_dsets, **metadata)
+
+    return fn_ses, fn_dsets

@@ -81,10 +81,24 @@ class TestsONEParquet(unittest.TestCase):
         self.assertTrue(dset_info['file_size'] > 0)
 
     def tests_db(self):
-        # filename = self.tmpdir / 'mypqt.pqt'
-        # apt.df2pqt(filename, df, **metadata)
-        # df2, metadata2 = apt.pqt2df(filename)
-        pass
+        fn_ses, fn_dsets = apt.make_parquet_db(self.tmpdir)
+        metadata_exp = apt._metadata(self.tmpdir)
+
+        df_ses, metadata = apt.pqt2df(fn_ses)
+        print(metadata)
+
+        # Check sessions dataframe.
+        self.assertEqual(metadata, metadata_exp)
+        print(df_ses)
+        self.assertEqual(df_ses.loc[0].to_dict(), self.ses_info)
+
+        # Check datasets dataframe.
+        df_dsets, metadata2 = apt.pqt2df(fn_dsets)
+        self.assertEqual(metadata2, metadata_exp)
+        print(df_dsets)
+        dset_info = df_dsets.loc[0].to_dict()
+        self.assertEqual(dset_info['session_path'], str(self.rel_ses_path[:-1]))
+        self.assertEqual(dset_info['rel_path'], str(self.rel_ses_files[0]))
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir)
