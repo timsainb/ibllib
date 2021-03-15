@@ -12,10 +12,17 @@ import alf.onepqt as apt
 class TestsONEParquet(unittest.TestCase):
     rel_ses_path = "mylab/Subjects/mysub/2021-02-28/001/"
     ses_info = {
-        'lab': 'mylab', 'subject': 'mysub', 'date': '2021-02-28', 'number': int('001'), 'eid': None}
+        'lab': 'mylab',
+        'subject': 'mysub',
+        'date': '2021-02-28',
+        'number': int('001'),
+        'eid': 'mylab/Subjects/mysub/2021-02-28/001',
+    }
     rel_ses_files = [Path('alf/spikes.times.npy')]
 
     def setUp(self) -> None:
+        pd.set_option("display.max_columns", 12)
+
         # root path:
         self.tmpdir = Path(tempfile.gettempdir()) / 'pqttest'
         self.tmpdir.mkdir(exist_ok=True)
@@ -24,7 +31,7 @@ class TestsONEParquet(unittest.TestCase):
         (self.full_ses_path / 'alf').mkdir(exist_ok=True, parents=True)
 
         self.file_path = self.full_ses_path / 'alf/spikes.times.npy'
-        self.file_path.touch()
+        self.file_path.write_text('mock')
 
     def test_parse(self):
         self.assertEqual(apt._parse_rel_ses_path(self.rel_ses_path), self.ses_info)
@@ -59,14 +66,25 @@ class TestsONEParquet(unittest.TestCase):
         self.assertTrue(metadata == metadata2)
 
     def test_sessions_df(self):
-        df = apt._make_sessions_df(self.tmpdir, 'mydb')
+        df = apt._make_sessions_df(self.tmpdir)
+        print("Sessions dataframe")
+        print(df)
         self.assertEqual(df.loc[0].to_dict(), self.ses_info)
 
     def test_datasets_df(self):
-        df = apt._make_datasets_df(self.tmpdir, 'mydb', self.rel_ses_path)
+        df = apt._make_datasets_df(self.tmpdir)
+        print("Datasets dataframe")
+        print(df)
         dset_info = df.loc[0].to_dict()
         self.assertEqual(dset_info['session_path'], self.rel_ses_path[:-1])
         self.assertEqual(dset_info['rel_path'], self.rel_ses_files[0])
+        self.assertTrue(dset_info['file_size'] > 0)
+
+    def tests_db(self):
+        # filename = self.tmpdir / 'mypqt.pqt'
+        # apt.df2pqt(filename, df, **metadata)
+        # df2, metadata2 = apt.pqt2df(filename)
+        pass
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmpdir)

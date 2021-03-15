@@ -11,6 +11,7 @@
 import datetime
 import json
 import os
+import os.path as op
 from pathlib import Path
 import re
 
@@ -56,8 +57,8 @@ def _pattern_to_regex(pattern):
     """Convert a path pattern with {...} into a regex."""
     return _compile(re.sub(r'\{(\w+)\}', r'(?P<\1>[a-zA-Z0-9\_\-\.]+)', pattern))
 
-SESSION_PATTERN = "^{lab}/Subjects/{subject}/{date}/{number}/?$"
-SESSION_REGEX = _pattern_to_regex(SESSION_PATTERN)
+SESSION_PATTERN = "{lab}/Subjects/{subject}/{date}/{number}"
+SESSION_REGEX = _pattern_to_regex('^%s/?$' % SESSION_PATTERN)
 
 FILE_PATTERN = "^{lab}/Subjects/{subject}/{date}/{number}/alf/{filename}$"
 FILE_REGEX = _pattern_to_regex(FILE_PATTERN)
@@ -133,14 +134,22 @@ def _metadata(origin):
 # Parsing util functions
 # -------------------------------------------------------------------------------------------------
 
+def _ses_eid(rel_ses_path):
+    m = SESSION_REGEX.match(str(rel_ses_path))
+    if not m:
+        raise ValueError("The relative session path `%s` is invalid." % rel_ses_path)
+    out = {n: m.group(n) for n in ('lab', 'subject', 'date', 'number')}
+    return SESSION_PATTERN.format(**out)
+
+
 def _parse_rel_ses_path(rel_ses_path):
     """Parse a relative session path."""
     m = SESSION_REGEX.match(str(rel_ses_path))
     if not m:
         raise ValueError("The relative session path `%s` is invalid." % rel_ses_path)
     out = {n: m.group(n) for n in ('lab', 'subject', 'date', 'number')}
+    out['eid'] = SESSION_PATTERN.format(**out)
     out['number'] = int(out['number'])
-    out['eid'] = None  # TODO
     return out
 
 
@@ -209,13 +218,16 @@ def _find_session_files(full_ses_path):
 
 def _get_dataset_info(full_ses_path, rel_dset_path, ses_eid=None):
     rel_ses_path = _get_file_rel_path(full_ses_path)
+    full_dset_path = op.join(full_ses_path, rel_dset_path)
+    file_size = Path(full_dset_path).stat().st_size
+    ses_eid = ses_eid or _ses_eid(rel_ses_path)
     return {
-        'eid': None,  # TODO
+        'eid': op.join(rel_ses_path, rel_dset_path),
         'session_eid': ses_eid,
         'session_path': rel_ses_path,
         'rel_path': rel_dset_path,
-        'dataset_type': None,  # TODO,
-        'file_size': 0,  # TODO
+        'dataset_type': '.'.join(str(rel_dset_path).split('/')[-1].split('.')[:-1]),
+        'file_size': file_size,
         'md5': None,  # TODO,
         'exists': True,
     }
@@ -225,7 +237,7 @@ def _get_dataset_info(full_ses_path, rel_dset_path, ses_eid=None):
 # Main functions
 # -------------------------------------------------------------------------------------------------
 
-def _make_sessions_df(root_dir, db_name):
+def _make_sessions_df(root_dir):
     rows = []
     for full_path in  _find_sessions(root_dir):
         rel_path = _get_file_rel_path(full_path)
@@ -235,15 +247,31 @@ def _make_sessions_df(root_dir, db_name):
     return df
 
 
-def _make_datasets_df(root_dir, db_name, rel_ses_path):
+def _extend_datasets_df(df, root_dir, rel_ses_path):
     rows = []
     for rel_dset_path in _find_session_files(root_dir / rel_ses_path):
         full_ses_path = root_dir / rel_ses_path
         file_info = _get_dataset_info(full_ses_path, rel_dset_path)
         rows.append(file_info)
-    df = pd.DataFrame(rows, columns=DATASETS_COLUMNS)
+    if df is None:
+        df = pd.DataFrame(rows, columns=DATASETS_COLUMNS)
+    else:
+        df.append(rows)
+    return df
+
+
+def _make_datasets_df(root_dir):
+    df = None
+    # Go through all found sessions.
+    for full_path in  _find_sessions(root_dir):
+        rel_ses_path = _get_file_rel_path(full_path)
+        # Append the datasets of each session.
+        df = _extend_datasets_df(df, root_dir, rel_ses_path)
     return df
 
 
 def make_parquet_db(root_dir, db_name):
-    return path_to_session.pqt, path_to_datasets.pqt
+    df_ses = _make_sessions_df(root_dir)
+    df_dsets = _make_datasets_df(root_dir)
+
+    # return path_to_session.pqt, path_to_datasets.pqt
