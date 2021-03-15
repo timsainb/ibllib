@@ -76,8 +76,8 @@ class TestsONEParquet(unittest.TestCase):
         print("Datasets dataframe")
         print(df)
         dset_info = df.loc[0].to_dict()
-        self.assertEqual(dset_info['session_path'], self.rel_ses_path[:-1])
-        self.assertEqual(dset_info['rel_path'], self.rel_ses_files[0])
+        self.assertEqual(dset_info['session_path'], str(self.rel_ses_path[:-1]))
+        self.assertEqual(dset_info['rel_path'], str(self.rel_ses_files[0]))
         self.assertTrue(dset_info['file_size'] > 0)
 
     def tests_db(self):
