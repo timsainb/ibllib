@@ -24,7 +24,7 @@ class TestsONEParquet(unittest.TestCase):
         'eid_0': 0,
         'eid_1': 0,
     }
-    rel_ses_files = [Path('alf/spikes.times.npy')]
+    rel_ses_files = [Path('alf/spikes.clusters.npy'), Path('alf/spikes.times.npy')]
 
     def setUp(self) -> None:
         pd.set_option("display.max_columns", 12)
@@ -38,6 +38,9 @@ class TestsONEParquet(unittest.TestCase):
 
         self.file_path = self.full_ses_path / 'alf/spikes.times.npy'
         self.file_path.write_text('mock')
+
+        sc = self.full_ses_path / 'alf/spikes.clusters.npy'
+        sc.write_text('mock2')
 
     def test_parse(self):
         self.assertEqual(apt._parse_rel_ses_path(self.rel_ses_path), self.ses_info)
