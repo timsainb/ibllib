@@ -143,7 +143,7 @@ class OneAbstract(abc.ABC):
         self._cache_file = Path(self._par.CACHE_DIR).joinpath('.one_cache.parquet')
         if self._cache_file.exists():
             # we need to keep this part fast enough for transient objects
-            self._cache = parquet.load(self._cache_file)
+            self._cache, _ = parquet.load(self._cache_file)
         else:
             self._cache = pd.DataFrame()
 

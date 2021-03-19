@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
+from brainbox.io import parquet
 import alf.onepqt as apt
 
 
@@ -64,10 +65,10 @@ class TestsONEParquet(unittest.TestCase):
 
         # Save parquet file.
         df = pd.DataFrame(rows, columns=columns)
-        apt.df2pqt(filename, df, **metadata)
+        parquet.save(filename, df, metadata=metadata)
 
         # Load parquet file
-        df2, metadata2 = apt.pqt2df(filename)
+        df2, metadata2 = parquet.load(filename)
         assert_frame_equal(df, df2)
         self.assertTrue(metadata == metadata2)
 
@@ -90,7 +91,7 @@ class TestsONEParquet(unittest.TestCase):
         fn_ses, fn_dsets = apt.make_parquet_db(self.tmpdir)
         metadata_exp = apt._metadata(self.tmpdir)
 
-        df_ses, metadata = apt.pqt2df(fn_ses)
+        df_ses, metadata = parquet.load(fn_ses)
         print(metadata)
 
         # Check sessions dataframe.
@@ -99,7 +100,7 @@ class TestsONEParquet(unittest.TestCase):
         self.assertEqual(df_ses.loc[0].to_dict(), self.ses_info)
 
         # Check datasets dataframe.
-        df_dsets, metadata2 = apt.pqt2df(fn_dsets)
+        df_dsets, metadata2 = parquet.load(fn_dsets)
         self.assertEqual(metadata2, metadata_exp)
         print(df_dsets)
         dset_info = df_dsets.loc[0].to_dict()

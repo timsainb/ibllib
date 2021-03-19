@@ -17,6 +17,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from brainbox.io import parquet
 from ibllib.io.hashfile import md5
 from alf.folders import session_path
 
@@ -73,43 +74,43 @@ FILE_REGEX = _pattern_to_regex(FILE_PATTERN)
 # Parquet util functions
 # -------------------------------------------------------------------------------------------------
 
-def df2pqt(filename, df, **metadata):
-    """
-    Save a Dataframe to a parquet file with some optional metadata.
-    :param filename:
-    :param df:
-    :param metadata:
-    :return:
-    """
+# def df2pqt(filename, df, **metadata):
+#     """
+#     Save a Dataframe to a parquet file with some optional metadata.
+#     :param filename:
+#     :param df:
+#     :param metadata:
+#     :return:
+#     """
 
-    # cf https://towardsdatascience.com/saving-metadata-with-dataframes-71f51f558d8e
+#     # cf https://towardsdatascience.com/saving-metadata-with-dataframes-71f51f558d8e
 
-    # from dataframe to parquet
-    table = pa.Table.from_pandas(df)
+#     # from dataframe to parquet
+#     table = pa.Table.from_pandas(df)
 
-    # Add user metadata
-    table = table.replace_schema_metadata({
-        'one_metadata': json.dumps(metadata).encode(),
-        **table.schema.metadata
-    })
+#     # Add user metadata
+#     table = table.replace_schema_metadata({
+#         'one_metadata': json.dumps(metadata).encode(),
+#         **table.schema.metadata
+#     })
 
-    # Save to parquet.
-    pq.write_table(table, filename)
+#     # Save to parquet.
+#     pq.write_table(table, filename)
 
-    print(f"{filename} written.")
+#     print(f"{filename} written.")
 
 
-def pqt2df(filename):
-    """
-    Load a parquet file to a Dataframe, and return the optional metadata as well.
-    :param filename:
-    :return:
-    """
+# def pqt2df(filename):
+#     """
+#     Load a parquet file to a Dataframe, and return the optional metadata as well.
+#     :param filename:
+#     :return:
+#     """
 
-    table = pq.read_table(filename)
-    metadata = json.loads(table.schema.metadata['one_metadata'.encode()])
-    df = table.to_pandas()
-    return df, metadata
+#     table = pq.read_table(filename)
+#     metadata = json.loads(table.schema.metadata['one_metadata'.encode()])
+#     df = table.to_pandas()
+#     return df, metadata
 
 
 def date2isostr(adate):
@@ -294,7 +295,7 @@ def make_parquet_db(root_dir, out_dir=None):
     metadata = _metadata(root_dir)
 
     # Save the Parquet files.
-    df2pqt(fn_ses, df_ses, **metadata)
-    df2pqt(fn_dsets, df_dsets, **metadata)
+    parquet.save(fn_ses, df_ses, metadata)
+    parquet.save(fn_dsets, df_dsets, metadata)
 
     return fn_ses, fn_dsets

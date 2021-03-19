@@ -1,6 +1,8 @@
 import uuid
-import numpy as np
+import json
+import logging
 
+import numpy as np
 import pyarrow.parquet as pq
 import pyarrow as pa
 import pandas as pd
@@ -8,23 +10,46 @@ import pandas as pd
 from brainbox.core import Bunch
 
 
-def load(file):
+_logger = logging.getLogger('ibllib')
+
+
+def load(filename):
     """
     Loads parquet file into pandas dataframe
     :param file:
     :return:
     """
-    return pq.read_table(file).to_pandas()
+    table = pq.read_table(filename)
+    try:
+        metadata = json.loads(table.schema.metadata['one_metadata'.encode()])
+    except:
+        _logger.debug("No parquet metadata in %s" % filename)
+        metadata = {}
+    df = table.to_pandas()
+    return df, metadata
 
 
-def save(file, table):
+def save(filename, table, metadata=None):
     """
     Save pandas dataframe to parquet
-    :param file:
+    :param filename:
     :param table:
+    :param metadata:
     :return:
     """
-    pq.write_table(pa.Table.from_pandas(table), file)
+    # cf https://towardsdatascience.com/saving-metadata-with-dataframes-71f51f558d8e
+
+    # from dataframe to parquet
+    table = pa.Table.from_pandas(table)
+
+    # Add user metadata
+    table = table.replace_schema_metadata({
+        'one_metadata': json.dumps(metadata or {}).encode(),
+        **table.schema.metadata
+    })
+
+    # Save to parquet.
+    pq.write_table(table, filename)
 
 
 def uuid2np(eids_uuid):

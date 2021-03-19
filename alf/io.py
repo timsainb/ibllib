@@ -183,7 +183,7 @@ def load_file_content(fil):
     if fil.suffix == '.npy':
         return np.load(file=fil, allow_pickle=True)
     if fil.suffix == '.pqt':
-        return parquet.load(fil)
+        return parquet.load(fil)[0]
     if fil.suffix == '.ssv':
         return pd.read_csv(fil, delimiter=' ')
     if fil.suffix == '.tsv':
