@@ -17,6 +17,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from ibllib.io.hashfile import md5
 from alf.folders import session_path
 
 
@@ -25,21 +26,26 @@ from alf.folders import session_path
 # -------------------------------------------------------------------------------------------------
 
 SESSIONS_COLUMNS = (
-    'eid',
+    'eid_0', # int64
+    'eid_1', # int64
+    'eid',  # str
     'lab',
     'subject',
     'date',
     'number',
+    'task_protocol',
+    'project',
 )
 
 DATASETS_COLUMNS = (
-    'eid',
-    'session_eid',
-    'session_path',
-    'rel_path',
-    'dataset_type',
+    'dset_id',          # str
+    'eid_0',             # int64
+    'eid_1',             # int64
+    'eid',              # str
+    'session_path',     # relative to the root
+    'rel_path',         # relative to the session path, includes the filename
     'file_size',
-    'md5',
+    'hash',             # sha1/md5, computed in load function
     'exists',
 )
 
@@ -142,6 +148,10 @@ def _parse_rel_ses_path(rel_ses_path):
     out = {n: m.group(n) for n in ('lab', 'subject', 'date', 'number')}
     out['eid'] = SESSION_PATTERN.format(**out)
     out['number'] = int(out['number'])
+    out['eid_0'] = 0
+    out['eid_1'] = 0
+    out['task_protocol'] = ''
+    out['project'] = ''
     return out
 
 
@@ -214,13 +224,13 @@ def _get_dataset_info(full_ses_path, rel_dset_path, ses_eid=None):
     file_size = Path(full_dset_path).stat().st_size
     ses_eid = ses_eid or _ses_eid(rel_ses_path)
     return {
-        'eid': str(op.join(rel_ses_path, rel_dset_path)),
-        'session_eid': str(ses_eid),
+        'dset_id': str(op.join(rel_ses_path, rel_dset_path)),
+        'eid': str(ses_eid),
         'session_path': str(rel_ses_path),
         'rel_path': str(rel_dset_path),
-        'dataset_type': '.'.join(str(rel_dset_path).split('/')[-1].split('.')[:-1]),
+        # 'dataset_type': '.'.join(str(rel_dset_path).split('/')[-1].split('.')[:-1]),
         'file_size': file_size,
-        'md5': None,  # TODO,
+        'hash': md5(full_dset_path),
         'exists': True,
     }
 
@@ -234,6 +244,7 @@ def _make_sessions_df(root_dir):
     for full_path in _find_sessions(root_dir):
         rel_path = _get_file_rel_path(full_path)
         ses_info = _parse_rel_ses_path(rel_path)
+        assert set(ses_info.keys()) <= set(SESSIONS_COLUMNS)
         rows.append(ses_info)
     df = pd.DataFrame(rows, columns=SESSIONS_COLUMNS)
     return df
@@ -244,6 +255,7 @@ def _extend_datasets_df(df, root_dir, rel_ses_path):
     for rel_dset_path in _find_session_files(root_dir / rel_ses_path):
         full_ses_path = root_dir / rel_ses_path
         file_info = _get_dataset_info(full_ses_path, rel_dset_path)
+        assert set(file_info.keys()) <= set(DATASETS_COLUMNS)
         rows.append(file_info)
     if df is None:
         df = pd.DataFrame(rows, columns=DATASETS_COLUMNS)

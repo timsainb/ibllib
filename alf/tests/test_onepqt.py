@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 import shutil
 
+import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
@@ -16,7 +17,11 @@ class TestsONEParquet(unittest.TestCase):
         'subject': 'mysub',
         'date': '2021-02-28',
         'number': int('001'),
+        'project': '',
+        'task_protocol': '',
         'eid': 'mylab/Subjects/mysub/2021-02-28/001',
+        'eid_0': 0,
+        'eid_1': 0,
     }
     rel_ses_files = [Path('alf/spikes.times.npy')]
 
