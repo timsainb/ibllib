@@ -8,14 +8,12 @@
 # -------------------------------------------------------------------------------------------------
 
 import datetime
-import json
-import os.path as op
+import uuid
+from functools import partial
 from pathlib import Path
 import re
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from brainbox.io import parquet
 from ibllib.io.hashfile import md5
@@ -27,8 +25,8 @@ from alf.folders import session_path
 # -------------------------------------------------------------------------------------------------
 
 SESSIONS_COLUMNS = (
-    'eid_0', # int64
-    'eid_1', # int64
+    # 'eid_0', # int64
+    # 'eid_1', # int64
     'eid',  # str
     'lab',
     'subject',
@@ -40,8 +38,8 @@ SESSIONS_COLUMNS = (
 
 DATASETS_COLUMNS = (
     'dset_id',          # str
-    'eid_0',             # int64
-    'eid_1',             # int64
+    # 'eid_0',             # int64
+    # 'eid_1',             # int64
     'eid',              # str
     'session_path',     # relative to the root
     'rel_path',         # relative to the session path, includes the filename
@@ -149,8 +147,8 @@ def _parse_rel_ses_path(rel_ses_path):
     out = {n: m.group(n) for n in ('lab', 'subject', 'date', 'number')}
     out['eid'] = SESSION_PATTERN.format(**out)
     out['number'] = int(out['number'])
-    out['eid_0'] = 0
-    out['eid_1'] = 0
+    # out['eid_0'] = 0
+    # out['eid_1'] = 0
     out['task_protocol'] = ''
     out['project'] = ''
     return out
@@ -221,14 +219,14 @@ def _find_session_files(full_ses_path):
 
 def _get_dataset_info(full_ses_path, rel_dset_path, ses_eid=None):
     rel_ses_path = _get_file_rel_path(full_ses_path)
-    full_dset_path = op.join(full_ses_path, rel_dset_path)
+    full_dset_path = Path(full_ses_path, rel_dset_path).as_posix()
     file_size = Path(full_dset_path).stat().st_size
     ses_eid = ses_eid or _ses_eid(rel_ses_path)
     return {
-        'dset_id': str(op.join(rel_ses_path, rel_dset_path)),
+        'dset_id': Path(rel_ses_path, rel_dset_path).as_posix(),
         'eid': str(ses_eid),
         'session_path': str(rel_ses_path),
-        'rel_path': str(rel_dset_path),
+        'rel_path': Path(rel_dset_path).as_posix(),
         # 'dataset_type': '.'.join(str(rel_dset_path).split('/')[-1].split('.')[:-1]),
         'file_size': file_size,
         'hash': md5(full_dset_path),
@@ -275,12 +273,28 @@ def _make_datasets_df(root_dir):
     return df
 
 
-def make_parquet_db(root_dir, out_dir=None):
+def _rel_path_to_uuid(df, id_key='rel_path', base_id=None):
+    base_id = base_id or uuid.uuid1()  # Base hash based on system by default
+    toUUID = partial(uuid.uuid3, base_id)  # MD5 hash from base uuid and rel session path string
+    uuids = df[id_key].map(toUUID)
+    assert len(uuids.unique()) == uuids.size
+    npuuid = parquet.uuid2np(uuids)
+    df[f"{id_key}_0"] = npuuid[:, 0]
+    df[f"{id_key}_1"] = npuuid[:, 1]
+
+
+def make_parquet_db(root_dir, out_dir=None, hash_ids=True):
     root_dir = Path(root_dir).resolve()
 
     # Make the dataframes.
     df_ses = _make_sessions_df(root_dir)
     df_dsets = _make_datasets_df(root_dir)
+
+    # Add integer id columns
+    if hash_ids:
+        ns = uuid.uuid1()
+        _rel_path_to_uuid(df_ses, id_key='eid', base_id=ns)
+        _rel_path_to_uuid(df_dsets, id_key='dset_id', base_id=ns)
 
     # Output directory.
     out_dir = Path(out_dir or root_dir)
