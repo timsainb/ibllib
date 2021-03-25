@@ -344,9 +344,69 @@ class OneAbstract(abc.ABC):
     def _make_dataclass(self, eid, dataset_types=None, cache_dir=None, **kwargs):
         pass
 
-    @abc.abstractmethod
-    def load(self, **kwargs):
-        pass
+    @parse_id
+    def load(self, eid, datasets=None, dclass_output=False, cache_dir=None,
+             download_only=False, clobber=False, offline=False, keep_uuid=False):
+        """
+        From a Session ID and dataset types, queries Alyx database, downloads the data
+        from Globus, and loads into numpy array.
+
+        :param eid: Experiment ID, for IBL this is the UUID of the Session as per Alyx
+         database. Could be a full Alyx URL:
+         'http://localhost:8000/sessions/698361f6-b7d0-447d-a25d-42afdef7a0da' or only the UUID:
+         '698361f6-b7d0-447d-a25d-42afdef7a0da'. Can also be a list of the above for multiple eids.
+        :type eid: str
+        :param datasets: [None]: Alyx dataset types to be returned.
+        :type datasets: list
+        :param dclass_output: [False]: forces the output as dataclass to provide context.
+        :type dclass_output: bool
+         If None or an empty dataset_type is specified, the output will be a dictionary by default.
+        :param cache_dir: temporarly overrides the cache_dir from the parameter file
+        :type cache_dir: str
+        :param download_only: do not attempt to load data in memory, just download the files
+        :type download_only: bool
+        :param clobber: force downloading even if files exists locally
+        :type clobber: bool
+        :param keep_uuid: keeps the UUID at the end of the filename (defaults to False)
+        :type keep_uuid: bool
+
+        :return: List of numpy arrays matching the size of dataset_types parameter, OR
+         a dataclass containing arrays and context data.
+        :rtype: list, dict, dataclass SessionDataInfo
+        """
+        # if no dataset_type is provided:
+        # a) force the output to be a dictionary that provides context to the data
+        # b) download all types that have a data url specified whithin the alf folder
+        datasets = [datasets] if isinstance(datasets, str) else datasets
+
+
+        if not datasets or datasets == 'all':
+            dclass_output = True
+        if offline:
+            dc = self._make_dataclass_offline(eid_str, datasets, **kwargs)
+        else:
+            dc = self._make_dataclass(eid_str, datasets, **kwargs)
+        # load the files content in variables if requested
+        if not download_only:
+            for ind, fil in enumerate(dc.local_path):
+                dc.data[ind] = alfio.load_file_content(fil)
+        # parse output arguments
+        if dclass_output:
+            return dc
+        # if required, parse the output as a list that matches dataset_types requested
+        list_out = []
+        for dt in datasets:
+            if dt not in dc.dataset_type:
+                _logger.warning('dataset ' + dt + ' not found for session: ' + eid_str)
+                list_out.append(None)
+                continue
+            for i, x, in enumerate(dc.dataset_type):
+                if dt == x:
+                    if dc.data[i] is not None:
+                        list_out.append(dc.data[i])
+                    else:
+                        list_out.append(dc.local_path[i])
+        return list_out
 
     @abc.abstractmethod
     def list(self, **kwargs):

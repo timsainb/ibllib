@@ -4,6 +4,8 @@ import unittest
 import tempfile
 import shutil
 
+import numpy as np
+
 from oneibl import webclient as wc
 from oneibl.one import ONE
 
@@ -189,3 +191,13 @@ class TestONECache(unittest.TestCase):
         eids, details = one.search(date='2021-03-16', lab='witten', details=True)
         self.assertEqual(len(eids), len(details))
         self.assertTrue(all(eid == det.eid for eid, det in zip(eids, details)))
+
+        # Test search without integer ids
+        for table in ('sessions', 'datasets'):
+            # Set integer uuids to NaN
+            col = self.one._cache[table].filter(regex=r'_\d{1}$').columns
+            self.one._cache[table][col] = np.nan
+        query = 'clusters'
+        eids = one.search(data=query)
+        self.assertTrue(eids)
+        self.assertTrue(all(any(Path(self.tempdir.name, x).rglob(f'*{query}*')) for x in eids))
