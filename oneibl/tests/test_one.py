@@ -4,13 +4,15 @@ import requests
 from pathlib import Path
 import tempfile
 import shutil
+import datetime
 
 import numpy as np
+import pandas as pd
 
 import ibllib.io.hashfile as hashfile
 from ibllib.exceptions import ALFObjectNotFound
 from alf.io import remove_uuid_file
-from oneibl.one import ONE
+from oneibl.one import ONE, _validate_date_range
 
 
 one = ONE(base_url='https://test.alyx.internationalbrainlab.org',
@@ -271,18 +273,36 @@ class TestLoad(unittest.TestCase):
 class TestMisc(unittest.TestCase):
 
     def test_validate_date_range(self):
-        from oneibl.one import _validate_date_range
-        # test with list of strings
-        expval = ['2018-11-04', '2018-11-04']
-        val = ['2018-11-04',
-               ['2018-11-04'],
-               ('2018-11-04'),
-               ['2018-11-04', '2018-11-04'],
-               ]
+        # Test various input types
+        val = (
+            '2020-01-01',
+            datetime.date(2020, 1, 1),
+            pd.Timestamp(2020, 1, 1),
+            np.datetime64('2020-01-01'),
+            ['2020-01-01', '2020-01-02'],
+            np.array(['2020-01-01', '2020-01-02'], dtype='datetime64[D]')
+        )
+        expval = (pd.Timestamp(2020, 1, 1), pd.Timestamp(2020, 1, 2))
         for v in val:
             self.assertEqual(_validate_date_range(v), expval)
-        val = ('2018-11-04', '2018-11-04')
-        self.assertEqual(_validate_date_range(val), val)
+
+        # Test handling of null values
+        verifiable = _validate_date_range(['2020-01-01'])
+        far_date = verifiable[-1].year - pd.Timestamp.now().year > 100  # years in future
+        self.assertTrue(len(verifiable) == 2 and far_date)
+        verifiable = _validate_date_range(['2020-01-01', None])
+        far_date = verifiable[-1].year - pd.Timestamp.now().year > 100  # years in future
+        self.assertTrue(len(verifiable) == 2 and far_date)
+
+        verifiable = _validate_date_range([None, '2020-01-01'])
+        far_date = pd.Timestamp.now().year - verifiable[0].year > 100  # years ago
+        self.assertTrue(len(verifiable) == 2 and far_date)
+
+        # Test size checks
+        with self.assertRaises(ValueError):
+            _validate_date_range(['2020-01-01'] * 3)
+        with self.assertRaises(ValueError):
+            _validate_date_range([])
 
     def test_to_eid(self):
         eid = 'cf264653-2deb-44cb-aa84-89b82507028a'

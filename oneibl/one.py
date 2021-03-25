@@ -5,8 +5,10 @@ import logging
 import os
 import fnmatch
 import re
+from datetime import datetime, timedelta
 from functools import wraps
-from pathlib import Path, PurePath
+from pathlib import Path
+from collections.abc import Iterable
 from typing import Any, Sequence, Union, Optional, List, Dict
 from uuid import UUID
 
@@ -26,6 +28,7 @@ from ibllib.io import hashfile
 from ibllib.misc import pprint
 from oneibl.dataclass import SessionDataInfo
 from brainbox.io import parquet
+from brainbox.core import Bunch
 from brainbox.numerical import ismember, ismember2d, find_first_2d
 
 _logger = logging.getLogger('ibllib')
@@ -52,44 +55,6 @@ _ENDPOINTS = {  # keynames are possible input arguments and values are actual en
     'subjects': 'subjects',
     'labs': 'labs',
     'lab': 'labs'}
-
-_SESSION_FIELDS = {  # keynames are possible input arguments and values are actual fields
-    'subjects': 'subject',
-    'subject': 'subject',
-    'user': 'users',
-    'users': 'users',
-    'lab': 'lab',
-    'labs': 'lab',
-    'type': 'type',
-    'start_time': 'start_time',
-    'start-time': 'start_time',
-    'end_time': 'end_time',
-    'end-time': 'end_time'}
-
-SEARCH_TERMS = {  # keynames are possible input arguments and values are actual fields
-    'data': 'dataset_types',
-    'dataset': 'dataset_types',
-    'datasets': 'dataset_types',
-    'dataset-types': 'dataset_types',
-    'dataset_types': 'dataset_types',
-    'users': 'users',
-    'user': 'users',
-    'subject': 'subject',
-    'subjects': 'subject',
-    'date_range': 'date_range',
-    'date-range': 'date_range',
-    'date': 'date_range',
-    'labs': 'lab',
-    'lab': 'lab',
-    'task': 'task_protocol',
-    'task_protocol': 'task_protocol',
-    'number': 'number',
-    'location': 'location',
-    'lab_location': 'location',
-    'performance_lte': 'performance_lte',
-    'performance_gte': 'performance_gte',
-    'project': 'project',
-}
 
 
 def _ses2pandas(ses, dtypes=None):
@@ -120,32 +85,153 @@ def parse_id(method):
     :param method: An ONE method whose second arg is an experiment id
     :return: A wrapper function that parses the id to the expected string
     """
+
     @wraps(method)
     def wrapper(self, id, *args, **kwargs):
         id = self.to_eid(id)
         return method(self, id, *args, **kwargs)
+
     return wrapper
 
 
 class OneAbstract(abc.ABC):
 
+    search_terms = (
+        'dataset', 'date_range', 'laboratory', 'number', 'project', 'subject', 'task_protocol'
+    )
+
     def __init__(self, username=None, password=None, base_url=None, cache_dir=None, silent=None):
         # get parameters override if inputs provided
         self._par = oneibl.params.get(silent=silent)
-        # can delete those 2 lines from mid January 2021
-        if self._par.HTTP_DATA_SERVER == 'http://ibl.flatironinstitute.org':
-            self._par = self._par.set("HTTP_DATA_SERVER", "https://ibl.flatironinstitute.org")
         self._par = self._par.set('ALYX_LOGIN', username or self._par.ALYX_LOGIN)
         self._par = self._par.set('ALYX_URL', base_url or self._par.ALYX_URL)
         self._par = self._par.set('ALYX_PWD', password or self._par.ALYX_PWD)
         self._par = self._par.set('CACHE_DIR', cache_dir or self._par.CACHE_DIR)
         # init the cache file
-        self._cache_file = Path(self._par.CACHE_DIR).joinpath('.one_cache.parquet')
-        if self._cache_file.exists():
-            # we need to keep this part fast enough for transient objects
-            self._cache, _ = parquet.load(self._cache_file)
+        self._sessions = Path(self._par.CACHE_DIR).joinpath('.sessions.pqt')
+        self._datasets = Path(self._par.CACHE_DIR).joinpath('.datasets.pqt')
+        self._load_cache()
+
+    def _load_cache(self):
+        EXPIRY = timedelta(hours=24)
+        self._cache = Bunch({'expired': False})
+        for table in ('sessions', 'datasets'):
+            cache_file = Path(self._par.CACHE_DIR).joinpath(table + '.pqt')
+            if cache_file.exists():
+                # we need to keep this part fast enough for transient objects
+                cache, info = parquet.load(cache_file)
+                created = datetime.fromisoformat(info['date_created'])
+                self._cache['expired'] |= datetime.now() - created > EXPIRY
+            else:
+                self._cache['expired'] = True
+                cache = pd.DataFrame()
+            self._cache[table] = cache
+
+    def search(self, details=False, exists_only=False, **kwargs):
+        """
+        Applies a filter to the sessions (eid) table and returns a list of json dictionaries
+         corresponding to sessions.
+
+        For a list of search terms, use the methods
+
+         one.search_terms
+
+        :param dataset: list of datasets
+        :type dataset: list of str
+
+        :param date_range: list of 2 strings or list of 2 dates that define the range (inclusive)
+        :type date_range: list, str, timestamp
+
+        :param details: default False, returns also the session details as per the REST response
+        :type details: bool
+
+        :param lab: a str or list of lab names
+        :type lab: list or str
+
+        :param number: number of session to be returned; will take the first n sessions found
+        :type number: list, str or int
+
+        :param subjects: a list of subjects nickname
+        :type subjects: list or str
+
+        :param task_protocol: task protocol name (can be partial, i.e. any task protocol
+                              containing that str will be found)
+        :type task_protocol: list or str
+
+        :param project: project name (can be partial, i.e. any task protocol containing
+                        that str will be found)
+        :type project: list or str
+
+        :return: list of eids, if details is True, also returns a list of dictionaries,
+         each entry corresponding to a matching session
+        :rtype: list, list
+
+
+        """
+        def validate_input(inarg):
+            """Ensure input is a list"""
+            return [inarg] if isinstance(inarg, str) or not isinstance(inarg, Iterable) else inarg
+
+        def autocomplete(term):
+            """
+            Validate search term and return complete name, e.g. autocomplete('subj') == 'subject'
+            """
+            full_key = (x for x in self.search_terms if x.lower().startswith(term))
+            key_ = next(full_key, None)
+            if not key_:
+                raise ValueError(f'Invalid search term "{term}"')
+            elif next(full_key, None):
+                raise ValueError(f'Ambiguous search term "{term}"')
+            return key_
+
+        # Iterate over search filters, reducing the sessions table
+        sessions, datasets = (self._cache['sessions'], self._cache['datasets'])
+        for key, value in kwargs.items():
+            key = autocomplete(key)  # Validate and get full name
+            # No matches; short circuit
+            if sessions.size == 0:
+                break
+            # String fields
+            elif key in ('subject', 'task_protocol', 'laboratory', 'project'):
+                query = '|'.join(validate_input(value))
+                mask = sessions['lab' if key == 'laboratory' else key].str.contains(query)
+                sessions = sessions[mask]
+            elif key == 'date_range':
+                start, end = _validate_date_range(value)
+                session_date = pd.to_datetime(sessions['date'])
+                sessions = sessions[(session_date >= start) & (session_date <= end)]
+            elif key == 'number':
+                query = validate_input(value)
+                sessions = sessions[sessions[key].isin(query)]
+            # Dataset check is biggest so this should be done last
+            elif key == 'dataset':
+                int_eids = all(x[['eid_0', 'eid_1']].any(axis=None) for x in (sessions, datasets))
+                index = ['eid_0', 'eid_1'] if int_eids else 'eid'
+                query = '|'.join(validate_input(value))
+                if exists_only:
+                    # For each session check any dataset both contains query and exists
+                    mask = \
+                        (datasets
+                         .groupby(index, sort=False)
+                         .apply(lambda x: any(x['rel_path'].str.contains(query) & x['exists'])))
+                else:
+                    # For each session check any dataset contains query
+                    mask = \
+                        (datasets
+                         .groupby(index, sort=False)['rel_path']
+                         .apply(lambda x: any(x.str.contains(query)))
+                         )
+
+                # Reduce sessions table by datasets mask
+                sessions = (sessions
+                            .set_index(index)[mask]
+                            .reset_index())
+
+        # Return results
+        if details:
+            return sessions.eid.to_list(), sessions.iloc[:, 2:].to_dict('records', Bunch)
         else:
-            self._cache = pd.DataFrame()
+            return sessions.eid.to_list()
 
     def _load(self, eid, dataset_types=None, dclass_output=False, download_only=False,
               offline=False, **kwargs):
@@ -193,20 +279,9 @@ class OneAbstract(abc.ABC):
             cache_dir = self._par.CACHE_DIR
         # if empty in parameter file, do not allow and set default
         if not cache_dir:
-            cache_dir = str(PurePath(Path.home(), "Downloads", "FlatIron"))
+            cache_dir = str(Path.home().joinpath("Downloads", "FlatIron"))
         assert cache_dir
         return cache_dir
-
-    def _make_dataclass_offline(self, eid, dataset_types=None, cache_dir=None, **kwargs):
-        if self._cache.size == 0:
-            return SessionDataInfo()
-        # select the session
-        npeid = parquet.str2np(eid)[0]
-        df = self._cache[self._cache['eid_0'] == npeid[0]]
-        df = df[df['eid_1'] == npeid[1]]
-        # select datasets
-        df = df[ismember(df['dataset_type'], dataset_types)[0]]
-        return SessionDataInfo.from_pandas(df, self._get_cache_dir(cache_dir))
 
     def path_from_eid(self, eid: str) -> Optional[Listable(Path)]:
         """
@@ -277,10 +352,6 @@ class OneAbstract(abc.ABC):
     def list(self, **kwargs):
         pass
 
-    @abc.abstractmethod
-    def search(self, **kwargs):
-        pass
-
 
 def ONE(offline=False, **kwargs):
     if offline:
@@ -298,9 +369,6 @@ class OneOffline(OneAbstract):
         return self._load(eid, **kwargs)
 
     def list(self, **kwargs):
-        pass
-
-    def search(self, **kwargs):
         pass
 
 
@@ -613,105 +681,105 @@ class OneAlyx(OneAbstract):
 
     # def search(self, dataset_types=None, users=None, subjects=None, date_range=None,
     #            lab=None, number=None, task_protocol=None, details=False):
-    def search(self, details=False, limit=None, **kwargs):
-        """
-        Applies a filter to the sessions (eid) table and returns a list of json dictionaries
-         corresponding to sessions.
-
-        For a list of search terms, use the methods
-
-        >>> one.search_terms()
-
-        :param dataset_types: list of dataset_types
-        :type dataset_types: list of str
-
-        :param date_range: list of 2 strings or list of 2 dates that define the range
-        :type date_range: list
-
-        :param details: default False, returns also the session details as per the REST response
-        :type details: bool
-
-        :param lab: a str or list of lab names
-        :type lab: list or str
-
-        :param limit: default None, limits results (if pagination enabled on server)
-        :type limit: int List of possible search terms
-
-        :param location: a str or list of lab location (as per Alyx definition) name
-                         Note: this corresponds to the specific rig, not the lab geographical
-                         location per se
-        :type location: str
-
-        :param number: number of session to be returned; will take the first n sessions found
-        :type number: str or int
-
-        :param performance_lte / performance_gte: search only for sessions whose performance is
-        less equal or greater equal than a pre-defined threshold as a percentage (0-100)
-        :type performance_gte: float
-
-        :param subjects: a list of subjects nickname
-        :type subjects: list or str
-
-        :param task_protocol: a str or list of task protocol name (can be partial, i.e.
-                              any task protocol containing that str will be found)
-        :type task_protocol: str
-
-        :param users: a list of users
-        :type users: list or str
-
-        :return: list of eids, if details is True, also returns a list of json dictionaries,
-         each entry corresponding to a matching session
-        :rtype: list, list
-
-
-        """
-
-        # small function to make sure string inputs are interpreted as lists
-        def validate_input(inarg):
-            if isinstance(inarg, str):
-                return [inarg]
-            elif isinstance(inarg, int):
-                return [str(inarg)]
-            else:
-                return inarg
-
-        # loop over input arguments and build the url
-        url = '/sessions?'
-        for k in kwargs.keys():
-            # check that the input matches one of the defined filters
-            if k not in SEARCH_TERMS:
-                _logger.error(f'"{k}" is not a valid search keyword' + '\n' +
-                              "Valid keywords are: " + str(set(SEARCH_TERMS.values())))
-                return
-            # then make sure the field is formatted properly
-            field = SEARCH_TERMS[k]
-            if field == 'date_range':
-                query = _validate_date_range(kwargs[k])
-            else:
-                query = validate_input(kwargs[k])
-            # at last append to the URL
-            url = url + f"&{field}=" + ','.join(query)
-        # the REST pagination argument has to be the last one
-        if limit:
-            url += f'&limit={limit}'
-        # implements the loading itself
-        ses = self.alyx.get(url)
-        if len(ses) > 2500:
-            eids = [s['url'] for s in tqdm.tqdm(ses)]  # flattens session info
-        else:
-            eids = [s['url'] for s in ses]
-        eids = [e.split('/')[-1] for e in eids]  # remove url to make it portable
-        if details:
-            for s in ses:
-                if all([s.get('lab'), s.get('subject'), s.get('start_time')]):
-                    s['local_path'] = str(Path(self._par.CACHE_DIR, s['lab'], 'Subjects',
-                                               s['subject'], s['start_time'][:10],
-                                               str(s['number']).zfill(3)))
-                else:
-                    s['local_path'] = None
-            return eids, ses
-        else:
-            return eids
+    # def search(self, details=False, limit=None, **kwargs):
+    #     """
+    #     Applies a filter to the sessions (eid) table and returns a list of json dictionaries
+    #      corresponding to sessions.
+    #
+    #     For a list of search terms, use the methods
+    #
+    #     >>> one.search_terms()
+    #
+    #     :param dataset_types: list of dataset_types
+    #     :type dataset_types: list of str
+    #
+    #     :param date_range: list of 2 strings or list of 2 dates that define the range
+    #     :type date_range: list
+    #
+    #     :param details: default False, returns also the session details as per the REST response
+    #     :type details: bool
+    #
+    #     :param lab: a str or list of lab names
+    #     :type lab: list or str
+    #
+    #     :param limit: default None, limits results (if pagination enabled on server)
+    #     :type limit: int List of possible search terms
+    #
+    #     :param location: a str or list of lab location (as per Alyx definition) name
+    #                      Note: this corresponds to the specific rig, not the lab geographical
+    #                      location per se
+    #     :type location: str
+    #
+    #     :param number: number of session to be returned; will take the first n sessions found
+    #     :type number: str or int
+    #
+    #     :param performance_lte / performance_gte: search only for sessions whose performance is
+    #     less equal or greater equal than a pre-defined threshold as a percentage (0-100)
+    #     :type performance_gte: float
+    #
+    #     :param subjects: a list of subjects nickname
+    #     :type subjects: list or str
+    #
+    #     :param task_protocol: a str or list of task protocol name (can be partial, i.e.
+    #                           any task protocol containing that str will be found)
+    #     :type task_protocol: str
+    #
+    #     :param users: a list of users
+    #     :type users: list or str
+    #
+    #     :return: list of eids, if details is True, also returns a list of json dictionaries,
+    #      each entry corresponding to a matching session
+    #     :rtype: list, list
+    #
+    #
+    #     """
+    #
+    #     # small function to make sure string inputs are interpreted as lists
+    #     def validate_input(inarg):
+    #         if isinstance(inarg, str):
+    #             return [inarg]
+    #         elif isinstance(inarg, int):
+    #             return [str(inarg)]
+    #         else:
+    #             return inarg
+    #
+    #     # loop over input arguments and build the url
+    #     url = '/sessions?'
+    #     for k in kwargs.keys():
+    #         # check that the input matches one of the defined filters
+    #         if k not in SEARCH_TERMS:
+    #             _logger.error(f'"{k}" is not a valid search keyword' + '\n' +
+    #                           "Valid keywords are: " + str(set(SEARCH_TERMS.values())))
+    #             return
+    #         # then make sure the field is formatted properly
+    #         field = SEARCH_TERMS[k]
+    #         if field == 'date_range':
+    #             query = _validate_date_range(kwargs[k])
+    #         else:
+    #             query = validate_input(kwargs[k])
+    #         # at last append to the URL
+    #         url = url + f"&{field}=" + ','.join(query)
+    #     # the REST pagination argument has to be the last one
+    #     if limit:
+    #         url += f'&limit={limit}'
+    #     # implements the loading itself
+    #     ses = self.alyx.get(url)
+    #     if len(ses) > 2500:
+    #         eids = [s['url'] for s in tqdm.tqdm(ses)]  # flattens session info
+    #     else:
+    #         eids = [s['url'] for s in ses]
+    #     eids = [e.split('/')[-1] for e in eids]  # remove url to make it portable
+    #     if details:
+    #         for s in ses:
+    #             if all([s.get('lab'), s.get('subject'), s.get('start_time')]):
+    #                 s['local_path'] = str(Path(self._par.CACHE_DIR, s['lab'], 'Subjects',
+    #                                            s['subject'], s['start_time'][:10],
+    #                                            str(s['number']).zfill(3)))
+    #             else:
+    #                 s['local_path'] = None
+    #         return eids, ses
+    #     else:
+    #         return eids
 
     def download_datasets(self, dsets, **kwargs):
         """
@@ -805,15 +873,15 @@ class OneAlyx(OneAbstract):
         else:
             return alfio.remove_uuid_file(local_path)
 
-    @staticmethod
-    def search_terms():
-        """
-        Returns possible search terms to be used in the one.search method.
-
-        :return: a tuple containing possible search terms:
-        :rtype: tuple
-        """
-        return sorted(list(set(SEARCH_TERMS.values())))
+    # @staticmethod
+    # def search_terms():
+    #     """
+    #     Returns possible search terms to be used in the one.search method.
+    #
+    #     :return: a tuple containing possible search terms:
+    #     :rtype: tuple
+    #     """
+    #     return sorted(SEARCH_TERMS)
 
     @staticmethod
     def keywords():
@@ -1066,9 +1134,40 @@ class OneAlyx(OneAbstract):
 def _validate_date_range(date_range):
     """
     Validates and arrange date range in a 2 elements list
+
+    Examples:
+        _validate_date_range('2020-01-01')  # On this day
+        _validate_date_range(datetime.date(2020, 1, 1))
+        _validate_date_range(np.array(['2022-01-30', '2022-01-30'], dtype='datetime64[D]'))
+        _validate_date_range(pd.Timestamp(2020, 1, 1))
+        _validate_date_range(np.datetime64(2021, 3, 11))
+        _validate_date_range(['2020-01-01'])  # from date
+        _validate_date_range(['2020-01-01', None])  # from date
+        _validate_date_range([None, '2020-01-01'])  # up to date
     """
-    if isinstance(date_range, str):
-        date_range = [date_range, date_range]
-    if len(date_range) == 1:
-        date_range = [date_range[0], date_range[0]]
-    return date_range
+    if date_range is None:
+        return
+
+    # Ensure we have exactly two values
+    if isinstance(date_range, str) or not isinstance(date_range, Iterable):
+        # date_range = (date_range, pd.Timestamp(date_range) + pd.Timedelta(days=1))
+        dt = pd.Timedelta(days=1) - pd.Timedelta(milliseconds=1)
+        date_range = (date_range, pd.Timestamp(date_range) + dt)
+    elif len(date_range) == 1:
+        date_range = [date_range[0], pd.Timestamp.max]
+    elif len(date_range) != 2:
+        raise ValueError
+
+    # For comparisons, ensure both values are pd.Timestamp (datetime, date and datetime64
+    # objects will be converted)
+    start, end = date_range
+    start = start or pd.Timestamp.min  # Convert None to lowest possible date
+    end = end or pd.Timestamp.max  # Convert None to highest possible date
+
+    # Convert to timestamp
+    if not isinstance(start, pd.Timestamp):
+        start = pd.Timestamp(start)
+    if not isinstance(end, pd.Timestamp):
+        end = pd.Timestamp(end)
+
+    return start, end

@@ -25,9 +25,9 @@ from alf.folders import session_path
 # -------------------------------------------------------------------------------------------------
 
 SESSIONS_COLUMNS = (
-    # 'eid_0', # int64
-    # 'eid_1', # int64
-    'eid',  # str
+    'eid_0',  # int64
+    'eid_1',  # int64
+    'eid',    # str
     'lab',
     'subject',
     'date',
@@ -38,8 +38,8 @@ SESSIONS_COLUMNS = (
 
 DATASETS_COLUMNS = (
     'dset_id',          # str
-    # 'eid_0',             # int64
-    # 'eid_1',             # int64
+    'eid_0',            # int64
+    'eid_1',            # int64
     'eid',              # str
     'session_path',     # relative to the root
     'rel_path',         # relative to the session path, includes the filename
@@ -147,8 +147,8 @@ def _parse_rel_ses_path(rel_ses_path):
     out = {n: m.group(n) for n in ('lab', 'subject', 'date', 'number')}
     out['eid'] = SESSION_PATTERN.format(**out)
     out['number'] = int(out['number'])
-    # out['eid_0'] = 0
-    # out['eid_1'] = 0
+    out['eid_0'] = 0
+    out['eid_1'] = 0
     out['task_protocol'] = ''
     out['project'] = ''
     return out
@@ -259,7 +259,7 @@ def _extend_datasets_df(df, root_dir, rel_ses_path):
     if df is None:
         df = pd.DataFrame(rows, columns=DATASETS_COLUMNS)
     else:
-        df.append(rows)
+        df = df.append(rows, ignore_index=True, verify_integrity=True)
     return df
 
 
@@ -277,7 +277,7 @@ def _rel_path_to_uuid(df, id_key='rel_path', base_id=None):
     base_id = base_id or uuid.uuid1()  # Base hash based on system by default
     toUUID = partial(uuid.uuid3, base_id)  # MD5 hash from base uuid and rel session path string
     uuids = df[id_key].map(toUUID)
-    assert len(uuids.unique()) == uuids.size
+    assert len(uuids.unique()) == uuids.size  # WARNING This fails :(
     npuuid = parquet.uuid2np(uuids)
     df[f"{id_key}_0"] = npuuid[:, 0]
     df[f"{id_key}_1"] = npuuid[:, 1]
@@ -293,8 +293,13 @@ def make_parquet_db(root_dir, out_dir=None, hash_ids=True):
     # Add integer id columns
     if hash_ids:
         ns = uuid.uuid1()
-        _rel_path_to_uuid(df_ses, id_key='eid', base_id=ns)
         _rel_path_to_uuid(df_dsets, id_key='dset_id', base_id=ns)
+        _rel_path_to_uuid(df_ses, id_key='eid', base_id=ns)
+        # Copy int eids into datasets frame
+        eid_cols = ['eid_0', 'eid_1']
+        df_dsets[eid_cols] = df_ses.set_index('eid').loc[df_dsets['eid'], eid_cols].values
+        assert all(df_dsets.set_index('eid')[eid_cols].drop_duplicates() ==
+                   df_ses.set_index('eid')[eid_cols])
 
     # Output directory.
     out_dir = Path(out_dir or root_dir)

@@ -1,8 +1,11 @@
 # flake8: noqa
 from pathlib import Path
 import unittest
+import tempfile
+import shutil
 
 from oneibl import webclient as wc
+from oneibl.one import ONE
 
 dsets = [
     {'url': 'https://alyx.internationalbrainlab.org/datasets/00059298-1b33-429c-a802-fa51bb662d72',
@@ -89,3 +92,100 @@ class TestAlyx2Path(unittest.TestCase):
         assert wc.one_path_from_dataset(dsets[0], one_cache='/one_root') == Path(one_path)
         assert wc.sdsc_globus_path_from_dataset(dsets[0]) == Path(globus_path_sdsc)
         assert wc.globus_path_from_dataset(dsets[0], repository='ibl_floferlab_SR') == Path(globus_path_sr)
+
+
+class TestONECache(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        fixture = Path(__file__).parent.joinpath('fixtures')
+        cls.tempdir = tempfile.TemporaryDirectory()
+        # Copy cache files to temporary directory
+        for cache_file in ('sessions', 'datasets'):
+            filename = shutil.copy(fixture / f'{cache_file}.pqt', cls.tempdir.name)
+            assert Path(filename).exists()
+        # Create ONE object with temp cache dir
+        cls.one = ONE(offline=True, cache_dir=cls.tempdir.name)
+        # Create dset files from cache
+        for file in cls.one._cache.datasets['dset_id']:
+            filepath = Path(cls.tempdir.name).joinpath(file)
+            filepath.parent.mkdir(exist_ok=True, parents=True)
+            filepath.touch()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.tempdir.cleanup()
+
+    def test_one_search(self):
+        one = self.one
+        # Search subject
+        eids = one.search(subject='KS050')
+        expected = ['cortexlab/Subjects/KS050/2021-03-07/001',
+                    'cortexlab/Subjects/KS050/2021-03-08/001']
+        self.assertEqual(expected, eids)
+
+        # Search lab
+        labs = ['mainen', 'cortexlab']
+        eids = one.search(laboratory=labs)
+        self.assertTrue(all(any(y in x for y in labs) for x in eids))
+
+        # Search date
+        eids = one.search(date='2021-03-19')
+        self.assertTrue(all('2021-03-19' in x for x in eids))
+
+        dates = ['2021-03-16', '2021-03-18']
+        eids = one.search(date=dates)
+        self.assertEqual(len(eids), 22)
+
+        dates = ['2021-03-16', None]
+        eids = one.search(date_range=dates)
+        self.assertEqual(len(eids), 27)
+
+        date = '2021-03-16'
+        eids = one.search(date=date)
+        self.assertTrue(all(date in x for x in eids))
+
+        # Search datasets
+        query = 'gpio'.upper()
+        eids = one.search(data=query)
+        self.assertTrue(eids)
+        self.assertTrue(all(any(Path(self.tempdir.name, x).rglob(f'*{query}*')) for x in eids))
+
+        # Filter non-existent
+        # Set exist for one of the eids to false
+        one._cache['datasets'].at[one._cache['datasets']['eid'] == eids[0], 'exists'] = False
+        self.assertTrue(len(eids) == len(one.search(data=query, exists_only=True)) + 1)
+
+        # Search task_protocol
+        n = 4
+        one._cache['sessions'].loc[:n, 'task_protocol'] = '_iblrig_tasks_biasedChoiceWorld6.4.2'
+        eids = one.search(task='biased')
+        self.assertEqual(len(eids), n + 1)
+
+        # Search project
+        one._cache['sessions'].loc[:n, 'project'] = 'ibl_certif_neuropix_recording'
+        eids = one.search(proj='neuropix')
+        self.assertEqual(len(eids), n + 1)
+
+        # Search number
+        number = 1
+        eids = one.search(num=number)
+        self.assertTrue(all(x.endswith(str(number)) for x in eids))
+        number = '002'
+        eids = one.search(number=number)
+        self.assertTrue(all(x.endswith(number) for x in eids))
+
+        # Test multiple fields, with short params
+        eids = one.search(subj='ZFM-02183', date='2021-03-05', num='002', lab='mainen')
+        self.assertTrue(len(eids) == 1)
+
+        # Test param error validation
+        with self.assertRaises(ValueError):
+            one.search(dat='2021-03-05')  # ambiguous
+        with self.assertRaises(ValueError):
+            one.search(user='mister')  # invalid search term
+
+        # Test details parameter
+        eids, details = one.search(date='2021-03-16', lab='witten', details=True)
+        self.assertEqual(len(eids), len(details))
+        self.assertTrue(all(eid == det.eid for eid, det in zip(eids, details)))
