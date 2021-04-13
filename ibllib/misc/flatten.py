@@ -11,14 +11,13 @@ dicts.
 :return: Flattened list or generator object.
 :rtype: list or generator
 """
-import collections
+from collections.abc import Iterable
 
 
 def iflatten(x):
     result = []
     for el in x:
-        if isinstance(el, collections.abc.Iterable) and not (
-                isinstance(el, str) or isinstance(el, dict)):
+        if isinstance(x, Iterable) and not isinstance(x, (str, dict)):
             result.extend(iflatten(el))
         else:
             result.append(el)
@@ -27,8 +26,7 @@ def iflatten(x):
 
 def gflatten(x):
     def iselement(e):
-        return not(isinstance(e, collections.abc.Iterable) and not(
-            isinstance(el, str) or isinstance(el, dict)))
+        return not (isinstance(x, Iterable) and not isinstance(x, (str, dict)))
     for el in x:
         if iselement(el):
             yield el

@@ -5,6 +5,7 @@ import tempfile
 import shutil
 
 import numpy as np
+import pandas as pd
 
 from oneibl import webclient as wc
 from oneibl.one import ONE
@@ -160,14 +161,14 @@ class TestONECache(unittest.TestCase):
 
         # Search task_protocol
         n = 4
-        one._cache['sessions'].loc[:n, 'task_protocol'] = '_iblrig_tasks_biasedChoiceWorld6.4.2'
+        one._cache['sessions'].iloc[:n, -2] = '_iblrig_tasks_biasedChoiceWorld6.4.2'
         eids = one.search(task='biased')
-        self.assertEqual(len(eids), n + 1)
+        self.assertEqual(len(eids), n)
 
         # Search project
-        one._cache['sessions'].loc[:n, 'project'] = 'ibl_certif_neuropix_recording'
+        one._cache['sessions'].iloc[:n, -1] = 'ibl_certif_neuropix_recording'
         eids = one.search(proj='neuropix')
-        self.assertEqual(len(eids), n + 1)
+        self.assertEqual(len(eids), n)
 
         # Search number
         number = 1
@@ -195,9 +196,42 @@ class TestONECache(unittest.TestCase):
         # Test search without integer ids
         for table in ('sessions', 'datasets'):
             # Set integer uuids to NaN
-            col = self.one._cache[table].filter(regex=r'_\d{1}$').columns
-            self.one._cache[table][col] = np.nan
+            cache = self.one._cache[table].reset_index()
+            cache[cache.filter(regex=r'_\d{1}$').columns] = np.nan
+            self.one._cache[table] = cache.set_index('eid' if table == 'sessions' else 'dset_id')
         query = 'clusters'
         eids = one.search(data=query)
         self.assertTrue(eids)
         self.assertTrue(all(any(Path(self.tempdir.name, x).rglob(f'*{query}*')) for x in eids))
+
+    def test_eid_from_path(self):
+        verifiable = self.one.eid_from_path('CSK-im-007/2021-03-21/001')
+        self.assertIsNone(verifiable)
+
+        session_path = Path.home() / 'lab' / 'FMR008' / '2021-03-18' / '001' / 'alf'
+        verifiable = self.one.eid_from_path(session_path)
+        self.assertEqual(verifiable, '513a9445-6f17-3730-83bc-019c91957a01')
+
+    def test_check_exists(self):
+        pass
+
+    def test_list_datasets(self):
+        dsets = self.one.list_datasets()
+        self.assertIsInstance(dsets, np.ndarray)
+        self.assertTrue(len(dsets), 28)
+
+        dsets = self.one.list_datasets('FMR019/2021-03-18/002')
+        self.assertIsInstance(dsets, pd.Dataframe)
+        self.assertTrue(len(dsets), 7)
+
+    def test_load_object(self):
+        wheel = self.one.load_object('FMR019/2021-03-18/002', 'wheel')
+        self.assertIsInstance(wheel, dict)
+        # dsets = self.one._cache['datasets']
+        # dsets = dsets[dsets['dset_id'].str.contains('FMR019/2021-03-18/002/.*wheel.*')]
+        # Path(self.tempdir.name, 'angelakilab', 'Subjects', 'FMR019', '2021-03-18').rmdir()
+
+    def load_load_dataset(self):
+        dset = self.one.load_dataset('mainenlab/Subjects/clns0730/2018-08-24/1',
+                                     'channels.clusters')
+        self.assertTrue(True)

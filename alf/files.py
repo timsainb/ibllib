@@ -11,7 +11,7 @@ Note the following:
     ALF files must always have an extension
 
 For more information, see the following documentation:
-    https://docs.internationalbrainlab.org/en/latest/04_reference.html#alf
+    https://int-brain-lab.github.io/iblenv/one_docs/one_reference.html#alf
 
 Created on Tue Sep 11 18:06:21 2018
 
@@ -30,7 +30,38 @@ ALF_EXP = re.compile(
     r'(?P<timescale>(?:_?)\w+)*\.?'
     r'(?P<extra>[.\w-]+)*\.'
     r'(?P<extension>\w+$)')
-STR_SPEC = 'collection/(_namespace_)object.attribute(_timescale)(.extra.parts).ext'
+
+"""The following are the """
+SESSION_SPEC = '{lab}/(Subjects/)?{subject}/{date}/{number}'
+COLLECTION_SPEC = r'{collection}/(#{revision}#/)?'
+FILE_SPEC = r'_?{namespace}?_?{object}\.{attribute}_?{timescale}*\.?{extra}*\.{extension}$'
+FULL_SPEC = f'{SESSION_SPEC}/{COLLECTION_SPEC}{FILE_SPEC}'
+_DEFAULT = {
+    'lab': r'\w+',
+    'subject': r'[\w-]+',
+    'date': r'\d{4}-\d{2}-\d{2}',
+    'number': r'\d{1,3}',
+    'collection': r'[\w/]+',
+    'revision': r'[\w-]+',  # brackets
+    'namespace': '(?<=_)[a-zA-Z0-9]+',  # brackets
+    'object': r'\w+',
+    'attribute': r'[a-zA-Z0-9]+(?:_times(?=[_\b.])|_intervals(?=[_\b.]))?',  # brackets
+    'timescale': r'(?:_?)\w+',  # brackets
+    'extra': r'[.\w-]+',  # brackets
+    'extension': r'\w+'
+}
+
+
+def _named(pattern, name):
+    """Wraps a regex pattern in a named capture group"""
+    return f'(?P<{name}>{pattern})'
+
+
+def regex(spec: str = FULL_SPEC, fields: dict = None) -> str:
+    parts = _DEFAULT.copy()
+    if fields:
+        parts.update(fields)
+    return spec.format(**{k: _named(parts[k], k) for k in re.findall(r'(?<={)\w+', spec)})
 
 
 def is_valid(filename):

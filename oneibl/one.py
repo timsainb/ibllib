@@ -20,7 +20,7 @@ import numpy as np
 import oneibl.params
 import oneibl.webclient as wc
 import alf.io as alfio
-from alf.files import is_valid, alf_parts
+from alf.files import is_valid, alf_parts, COLLECTION_SPEC, FILE_SPEC, regex as alf_regex
 # from ibllib.misc.exp_ref import is_exp_ref
 from ibllib.exceptions import \
     ALFMultipleObjectsFound, ALFObjectNotFound, ALFMultipleCollectionsFound
@@ -94,7 +94,7 @@ def parse_id(method):
     return wrapper
 
 
-class OneAbstract(abc.ABC):
+class One:
 
     search_terms = (
         'dataset', 'date_range', 'laboratory', 'number', 'project', 'subject', 'task_protocol'
@@ -115,7 +115,7 @@ class OneAbstract(abc.ABC):
     def _load_cache(self):
         EXPIRY = timedelta(hours=24)
         self._cache = Bunch({'expired': False})
-        for table in ('sessions', 'datasets'):
+        for table, index_key in zip(('sessions', 'datasets'), ('eid', 'dset_id')):
             cache_file = Path(self._par.CACHE_DIR).joinpath(table + '.pqt')
             if cache_file.exists():
                 # we need to keep this part fast enough for transient objects
@@ -125,7 +125,38 @@ class OneAbstract(abc.ABC):
             else:
                 self._cache['expired'] = True
                 cache = pd.DataFrame()
+
+            # Set the appropriate index
+            num_index = [f'{index_key}_{n}' for n in range(2)]
+            int_eids = cache[num_index].any(axis=None)
+            cache.set_index(num_index if int_eids else index_key, inplace=True)
+
             self._cache[table] = cache
+
+    def download_datasets(self, dsets, **kwargs) -> List[Path]:
+        """
+        TODO Support slice, dicts and URLs?
+        Download several datasets given a slice of the datasets table
+        :param dsets: list of dataset dictionaries from an Alyx REST query OR list of URL strings
+        :return: local file path list
+        """
+        out_files = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=NTHREADS) as executor:
+            futures = [executor.submit(self.download_dataset, dset, file_size=dset['file_size'],
+                                       hash=dset['hash'], **kwargs) for dset in dsets]
+            concurrent.futures.wait(futures)
+            for future in futures:
+                out_files.append(future.result())
+        return out_files
+
+    def download_dataset(self, dset, cache_dir=None, **kwargs) -> Path:
+        """
+        Download a dataset from an alyx REST dictionary
+        :param dset: single dataset dictionary from an Alyx REST query OR URL string
+        :param cache_dir (optional): root directory to save the data in (home/downloads by default)
+        :return: local file path
+        """
+        pass
 
     def search(self, details=False, exists_only=False, **kwargs):
         """
@@ -205,7 +236,7 @@ class OneAbstract(abc.ABC):
                 sessions = sessions[sessions[key].isin(query)]
             # Dataset check is biggest so this should be done last
             elif key == 'dataset':
-                int_eids = all(x[['eid_0', 'eid_1']].any(axis=None) for x in (sessions, datasets))
+                int_eids = all(len(x.index.names) == 2 for x in (sessions, datasets))
                 index = ['eid_0', 'eid_1'] if int_eids else 'eid'
                 query = '|'.join(validate_input(value))
                 if exists_only:
@@ -223,11 +254,10 @@ class OneAbstract(abc.ABC):
                          )
 
                 # Reduce sessions table by datasets mask
-                sessions = (sessions
-                            .set_index(index)[mask]
-                            .reset_index())
+                sessions = sessions[mask]
 
         # Return results
+        sessions.reset_index(inplace=True)
         if details:
             return sessions.eid.to_list(), sessions.iloc[:, 2:].to_dict('records', Bunch)
         else:
@@ -283,6 +313,36 @@ class OneAbstract(abc.ABC):
         assert cache_dir
         return cache_dir
 
+    def to_eid(self,
+               id: Listable(Union[str, Path, UUID, dict]) = None,
+               cache_dir: Optional[Union[str, Path]] = None) -> Listable(str):
+        if isinstance(id, (list, tuple)):  # Recurse
+            return [self.to_eid(i, cache_dir) for i in id]
+        if isinstance(id, UUID):
+            return str(id)
+        # elif is_exp_ref(id):
+        #     return ref2eid(id, one=self)
+        elif isinstance(id, dict):
+            assert {'subject', 'number', 'start_time', 'lab'}.issubset(id)
+            root = Path(self._get_cache_dir(cache_dir))
+            id = root.joinpath(
+                id['lab'],
+                'Subjects', id['subject'],
+                id['start_time'][:10],
+                ('%03d' % id['number']))
+
+        if alfio.is_session_path(id):
+            return self.eid_from_path(id)
+        elif isinstance(id, str):
+            if len(id) > 36:
+                id = id[-36:]
+            if not alfio.is_uuid_string(id):
+                raise ValueError('Invalid experiment ID')
+            else:
+                return id
+        else:
+            raise ValueError('Unrecognized experiment ID')
+
     def path_from_eid(self, eid: str) -> Optional[Listable(Path)]:
         """
         From an experiment id or a list of experiment ids, gets the local cache path
@@ -299,7 +359,7 @@ class OneAbstract(abc.ABC):
         if not alfio.is_uuid_string(eid):
             print(eid, " is not a valid eID/UUID string")
             return
-        if self._cache.size == 0:
+        if self._cache['sessions'].size == 0:
             return
 
         # load path from cache
@@ -327,22 +387,199 @@ class OneAbstract(abc.ABC):
         # else ensure the path ends with mouse,date, number
         path_obj = Path(path_obj)
         session_path = alfio.get_session_path(path_obj)
+        sessions = self._cache['sessions']
+
         # if path does not have a date and a number, or cache is empty return None
-        if session_path is None or self._cache.size == 0:
+        if session_path is None or sessions.size == 0:
             return None
 
-        # fetch eid from cache
-        ind = ((self._cache['subject'] == session_path.parts[-3]) &
-               (self._cache['start_time'].apply(
-                   lambda x: x.isoformat()[:10] == session_path.parts[-2])) &
-               (self._cache['number']) == int(session_path.parts[-1]))
-        ind = np.where(ind.to_numpy())[0]
-        if ind.size > 0:
-            return parquet.np2str(self._cache[['eid_0', 'eid_1']].iloc[ind[0]])
+        # reduce session records from cache
+        subject, date, number = session_path.parts[-3:]
+        for col, val in zip(('subject', 'date', 'number'), (subject, date, int(number))):
+            sessions = sessions[sessions[col] == val]
+            if sessions.size == 0:
+                return
 
-    @abc.abstractmethod
-    def _make_dataclass(self, eid, dataset_types=None, cache_dir=None, **kwargs):
-        pass
+        assert len(sessions) == 1
+
+        eid, = sessions.index.values
+        if isinstance(eid, tuple):
+            eid = parquet.np2str(np.array([eid]))
+        return eid
+
+    def _check_exists(self, datasets, update=True):
+        """
+        Given a set of dataset records, checks the corresponding exists flag in the cache
+        correctly reflects the files system
+        :param datasets: A datasets dataframe slice
+        :param update: If true, update cache exists column
+        :return: True if any exists values were modified
+        """
+        changed = False
+        root = self._get_cache_dir(None)
+        for i, rec in datasets.iterrows():
+            if rec['exists'] != Path(root, rec['session_path'], rec['rel_path']).exists():
+                changed = False
+                datasets.iat[i, -1] = not rec['exists']
+                if update:
+                    self._cache['datasets'].at[rec.name, 'exists'] = rec['exists']
+        return changed
+
+    def _index_type(self, table='sessions'):
+        idx_0 = self._cache[table].index.values[0]
+        if len(self._cache[table].index.names) == 2 and all(isinstance(x, int) for x in idx_0):
+            return int
+        elif len(self._cache[table].index.names) == 1 and isinstance(idx_0, str):
+            return str
+        else:
+            raise IndexError
+
+    @parse_id
+    def get_details(self, eid: Union[str, Path, UUID], full: bool = False):
+        int_ids = self._index_type() is int
+        if int_ids:
+            eid = parquet.str2np(eid).tolist()
+        det = self._cache['sessions'].loc[eid]
+        if full:
+            to_drop = 'eid' if int_ids else ['eid_0', 'eid_1']
+            det = det.drop(to_drop, axis=1)
+            det = self._cache['datasets'].join(det, on=det.index.names, how='right')
+        return det
+
+    def list_datasets(self, eid=None) -> Union[np.ndarray, pd.DataFrame]:
+        """
+        Given one or more eids, return the datasets for those sessions.  If no eid is provided,
+        a list of all unique datasets is returned
+        :param eid: Experiment session identifier; may be a UUID, URL, experiment reference string
+        details dict or Path
+        :return: Slice of datasets table or numpy array if eid is None
+        """
+        if not eid:
+            return self._cache['datasets']['rel_path'].unique()
+        eid = self.to_eid(eid)  # Ensure we have a UUID str list
+        if self._index_type() is int:
+            eid_num = parquet.str2np(eid)
+            index = ['eid_0', 'eid_1']
+            isin, _ = ismember2d(self._cache['datasets'][index].to_numpy(), eid_num)
+            datasets = self._cache['datasets'][isin]
+        else:
+            session_match = self._cache['datasets']['eid'].isin(eid)
+            datasets = self._cache['datasets'][session_match]
+        return datasets
+
+    @parse_id
+    def load_object(self,
+                    eid: Union[str, Path, UUID],
+                    obj: str,
+                    collection: Optional[str] = 'alf',
+                    **kwargs) -> Union[alfio.AlfBunch, List[Path]]:
+        """
+        Load all attributes of an ALF object from a Session ID and an object name.
+
+        :param eid: Experiment session identifier; may be a UUID, URL, experiment reference string
+        details dict or Path
+        :param obj: The ALF object to load.  Supports asterisks as wildcards.
+        :param collection:  The collection to which the object belongs, e.g. 'alf/probe01'.
+        Supports asterisks as wildcards.
+        :param download_only: When true the data are downloaded and the file paths are returned
+        :param kwargs: Optional filters for the ALF objects, including namespace and timescale
+        :return: An ALF bunch or if download_only is True, a list of Paths objects
+
+        Examples:
+        load_object(eid, '*moves')
+        load_object(eid, 'trials')
+        load_object(eid, 'spikes', collection='*probe01')
+        """
+        sessions, datasets = (self._cache['sessions'], self._cache['datasets'])
+        # TODO Make into function, maybe type check
+        int_eids = len(sessions.index.names) == 2
+        index = ['eid_0', 'eid_1'] if int_eids else 'eid'
+
+        if int_eids:
+            eid_num = parquet.str2np(eid)
+            datasets = (datasets
+                        .reset_index()
+                        .set_index(index)
+                        .loc[eid_num.tolist()]
+                        .set_index(self._cache['datasets'].index.names))
+            # datasets = (datasets['eid_0'] == eid_num[0][0]) & (datasets['eid_1'] == eid_num[0][1])
+        else:
+            datasets = datasets[datasets[index] == eid]
+
+        if len(datasets) == 0:
+            raise ALFObjectNotFound(f'ALF object "{obj}" not found in cache')
+
+        EXP = f'{COLLECTION_SPEC}{FILE_SPEC}'
+        expression = alf_regex(EXP, {'object': obj, 'collection': collection})
+        REGEX = True
+        if not REGEX:
+            obj.replace('*', '.*')
+        table = datasets['rel_path'].str.extract(expression)
+        match = ~table[['collection', 'object']].isna().all(axis=1)
+
+        # Validate result before loading
+        if table['object'][match].unique().size > 1:
+            raise ALFMultipleObjectsFound('The following matching objects were found: ' +
+                                          ', '.join(table['object'][match].unique()))
+        elif not match.any():
+            raise ALFObjectNotFound(f'ALF object "{obj}" not found on Alyx')
+        if table['collection'][match].unique().size > 1:
+            raise ALFMultipleCollectionsFound('Matching object belongs to multiple collections:' +
+                                              ', '.join(table['collection'][match].unique()))
+
+        datasets = datasets[match]
+        self._check_exists(datasets)
+
+        # parquet.np2str(np.array(datasets.index.values.tolist()))
+        # For those that don't exist, download them
+        # return alfio.load_object(path, table[match]['object'].values[0])
+        download_only = kwargs.pop('download_only', False)
+        if hasattr(self, 'alyx') and self.alyx:  # FIXME Change attr to `online`
+            # TODO Move to OneAlyx load_dataset
+            records = [self.alyx.rest('datasets', 'read', id=x)
+                       for x in datasets['dset_id'][~datasets['exists']]]
+            files = self.download_datasets(records)
+            idx = datasets[~datasets['exists']].index
+            self._cache['datasets'].loc[idx, 'exists'] = [x is not None for x in files]
+            if download_only:
+                return files
+
+        # self._check_exists(datasets[~datasets['exists']])
+        path = Path(self._get_cache_dir(None),
+                    *datasets[['session_path', 'rel_path']].iloc[0]).parent
+        return alfio.load_object(path, table[match]['object'].values[0], **kwargs)
+
+    @parse_id
+    def load_dataset(self,
+                     eid: Union[str, Path, UUID],
+                     dataset: str,
+                     collection: Optional[str] = None,
+                     download_only: bool = False) -> Any:
+        sessions, datasets = (self._cache['sessions'], self._cache['datasets'])
+        int_eids = len(sessions.index.names) == 2
+        index = ['eid_0', 'eid_1'] if int_eids else 'eid'
+
+        if int_eids:
+            eid_num = parquet.str2np(eid)
+            datasets = (datasets
+                        .reset_index()
+                        .set_index(index)
+                        .loc[eid_num.tolist()]
+                        .set_index(self._cache['datasets'].index.names))
+        else:
+            datasets = datasets[datasets[index] == eid]
+
+        if len(datasets) == 0:
+            raise ALFObjectNotFound(f'ALF dataset "{dataset}" not found in cache')
+
+        EXP = f'{COLLECTION_SPEC}{FILE_SPEC}'
+        expression = alf_regex(EXP, {'object': obj, 'collection': collection})
+        REGEX = True
+        if not REGEX:
+            obj.replace('*', '.*')
+        table = datasets['rel_path'].str.extract(expression)
+        match = ~table[['collection', 'object']].isna().all(axis=1)
+
 
     @parse_id
     def load(self, eid, datasets=None, dclass_output=False, cache_dir=None,
@@ -361,7 +598,7 @@ class OneAbstract(abc.ABC):
         :param dclass_output: [False]: forces the output as dataclass to provide context.
         :type dclass_output: bool
          If None or an empty dataset_type is specified, the output will be a dictionary by default.
-        :param cache_dir: temporarly overrides the cache_dir from the parameter file
+        :param cache_dir: temporarily overrides the cache_dir from the parameter file
         :type cache_dir: str
         :param download_only: do not attempt to load data in memory, just download the files
         :type download_only: bool
@@ -414,25 +651,14 @@ class OneAbstract(abc.ABC):
 
 
 def ONE(offline=False, **kwargs):
+    """ONE factory"""
     if offline:
-        return OneOffline(**kwargs)
+        return One(**kwargs)
     else:
         return OneAlyx(**kwargs)
 
 
-class OneOffline(OneAbstract):
-
-    def _make_dataclass(self, *args, **kwargs):
-        return self._make_dataclass_offline(*args, **kwargs)
-
-    def load(self, eid, **kwargs):
-        return self._load(eid, **kwargs)
-
-    def list(self, **kwargs):
-        pass
-
-
-class OneAlyx(OneAbstract):
+class OneAlyx(One):
     def __init__(self, **kwargs):
         # get parameters override if inputs provided
         super(OneAlyx, self).__init__(**kwargs)
@@ -569,62 +795,62 @@ class OneAlyx(OneAbstract):
 
         return filename if download_only else alfio.load_file_content(filename)
 
-    @parse_id
-    def load_object(self,
-                    eid: Union[str, Path, UUID],
-                    obj: str,
-                    collection: Optional[str] = 'alf',
-                    download_only: bool = False,
-                    **kwargs) -> Union[alfio.AlfBunch, List[Path]]:
-        """
-        Load all attributes of an ALF object from a Session ID and an object name.
-
-        :param eid: Experiment session identifier; may be a UUID, URL, experiment reference string
-        details dict or Path
-        :param obj: The ALF object to load.  Supports asterisks as wildcards.
-        :param collection:  The collection to which the object belongs, e.g. 'alf/probe01'.
-        Supports asterisks as wildcards.
-        :param download_only: When true the data are downloaded and the file paths are returned
-        :param kwargs: Optional filters for the ALF objects, including namespace and timescale
-        :return: An ALF bunch or if download_only is True, a list of Paths objects
-
-        Examples:
-        load_object(eid, '*moves')
-        load_object(eid, 'trials')
-        load_object(eid, 'spikes', collection='*probe01')
-        """
-        # Filter server-side by collection and dataset name
-        search_str = 'name__regex,' + obj.replace('*', '.*')
-        if collection and collection != 'all':
-            search_str += ',collection__regex,' + collection.replace('*', '.*')
-        results = self.alyx.rest('datasets', 'list', exists=True, session=eid, django=search_str)
-        pattern = re.compile(fnmatch.translate(obj))
-
-        # Further refine by matching object part of ALF datasets
-        def match(r):
-            return is_valid(r['name']) and pattern.match(alf_parts(r['name'])[1])
-
-        # Get filenames of returned ALF files
-        returned_obj = {alf_parts(x['name'])[1] for x in results if match(x)}
-
-        # Validate result before loading
-        if len(returned_obj) > 1:
-            raise ALFMultipleObjectsFound('The following matching objects were found: ' +
-                                          ', '.join(returned_obj))
-        elif len(returned_obj) == 0:
-            raise ALFObjectNotFound(f'ALF object "{obj}" not found on Alyx')
-        collection_set = {x['collection'] for x in results if match(x)}
-        if len(collection_set) > 1:
-            raise ALFMultipleCollectionsFound('Matching object belongs to multiple collections:' +
-                                              ', '.join(collection_set))
-
-        # Download and optionally load the datasets
-        out_files = self.download_datasets(x for x in results if match(x))
-        assert not any(x is None for x in out_files), 'failed to download object'
-        if download_only:
-            return out_files
-        else:
-            return alfio.load_object(out_files[0].parent, obj, **kwargs)
+    # @parse_id
+    # def load_object(self,
+    #                 eid: Union[str, Path, UUID],
+    #                 obj: str,
+    #                 collection: Optional[str] = 'alf',
+    #                 download_only: bool = False,
+    #                 **kwargs) -> Union[alfio.AlfBunch, List[Path]]:
+    #     """
+    #     Load all attributes of an ALF object from a Session ID and an object name.
+    #
+    #     :param eid: Experiment session identifier; may be a UUID, URL, experiment reference string
+    #     details dict or Path
+    #     :param obj: The ALF object to load.  Supports asterisks as wildcards.
+    #     :param collection:  The collection to which the object belongs, e.g. 'alf/probe01'.
+    #     Supports asterisks as wildcards.
+    #     :param download_only: When true the data are downloaded and the file paths are returned
+    #     :param kwargs: Optional filters for the ALF objects, including namespace and timescale
+    #     :return: An ALF bunch or if download_only is True, a list of Paths objects
+    #
+    #     Examples:
+    #     load_object(eid, '*moves')
+    #     load_object(eid, 'trials')
+    #     load_object(eid, 'spikes', collection='*probe01')
+    #     """
+    #     # Filter server-side by collection and dataset name
+    #     search_str = 'name__regex,' + obj.replace('*', '.*')
+    #     if collection and collection != 'all':
+    #         search_str += ',collection__regex,' + collection.replace('*', '.*')
+    #     results = self.alyx.rest('datasets', 'list', exists=True, session=eid, django=search_str)
+    #     pattern = re.compile(fnmatch.translate(obj))
+    #
+    #     # Further refine by matching object part of ALF datasets
+    #     def match(r):
+    #         return is_valid(r['name']) and pattern.match(alf_parts(r['name'])[1])
+    #
+    #     # Get filenames of returned ALF files
+    #     returned_obj = {alf_parts(x['name'])[1] for x in results if match(x)}
+    #
+    #     # Validate result before loading
+    #     if len(returned_obj) > 1:
+    #         raise ALFMultipleObjectsFound('The following matching objects were found: ' +
+    #                                       ', '.join(returned_obj))
+    #     elif len(returned_obj) == 0:
+    #         raise ALFObjectNotFound(f'ALF object "{obj}" not found on Alyx')
+    #     collection_set = {x['collection'] for x in results if match(x)}
+    #     if len(collection_set) > 1:
+    #         raise ALFMultipleCollectionsFound('Matching object belongs to multiple collections:' +
+    #                                           ', '.join(collection_set))
+    #
+    #     # Download and optionally load the datasets
+    #     out_files = self.download_datasets(x for x in results if match(x))
+    #     assert not any(x is None for x in out_files), 'failed to download object'
+    #     if download_only:
+    #         return out_files
+    #     else:
+    #         return alfio.load_object(out_files[0].parent, obj, **kwargs)
 
     def _load_recursive(self, eid, **kwargs):
         """
@@ -841,21 +1067,6 @@ class OneAlyx(OneAbstract):
     #     else:
     #         return eids
 
-    def download_datasets(self, dsets, **kwargs):
-        """
-        Download several datsets through a list of alyx REST dictionaries
-        :param dset: list of dataset dictionaries from an Alyx REST query OR list of URL strings
-        :return: local file path
-        """
-        out_files = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=NTHREADS) as executor:
-            futures = [executor.submit(self.download_dataset, dset, file_size=dset['file_size'],
-                                       hash=dset['hash'], **kwargs) for dset in dsets]
-            concurrent.futures.wait(futures)
-            for future in futures:
-                out_files.append(future.result())
-        return out_files
-
     def download_dataset(self, dset, cache_dir=None, **kwargs):
         """
         Download a dataset from an alyx REST dictionary
@@ -1036,10 +1247,10 @@ class OneAlyx(OneAbstract):
         eid = self.eid_from_path(filepath)
         try:
             dataset, = self.alyx.rest('datasets', 'list', session=eid, name=Path(filepath).name)
-        except ValueError:
+            return next(
+                r['data_url'] for r in dataset['file_records'] if r['data_url'] and r['exists'])
+        except (ValueError, StopIteration):
             raise ALFObjectNotFound(f'File record for {filepath} not found on Alyx')
-        return next(
-            r['data_url'] for r in dataset['file_records'] if r['data_url'] and r['exists'])
 
     @parse_id
     def datasets_from_type(self, eid, dataset_type, full=False):

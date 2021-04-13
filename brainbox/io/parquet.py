@@ -16,13 +16,13 @@ _logger = logging.getLogger('ibllib')
 def load(filename):
     """
     Loads parquet file into pandas dataframe
-    :param file:
+    :param filename:
     :return:
     """
     table = pq.read_table(filename)
     try:
-        metadata = json.loads(table.schema.metadata['one_metadata'.encode()])
-    except:
+        metadata = json.loads(table.schema.metadata[b'one_metadata'])
+    except KeyError:
         _logger.debug("No parquet metadata in %s" % filename)
         metadata = {}
     df = table.to_pandas()
