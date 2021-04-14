@@ -3,12 +3,14 @@ from pathlib import Path
 import unittest
 import tempfile
 import shutil
+from uuid import UUID
 
 import numpy as np
 import pandas as pd
 
 from oneibl import webclient as wc
 from oneibl.one import ONE
+import ibllib.exceptions as iblerr
 
 dsets = [
     {'url': 'https://alyx.internationalbrainlab.org/datasets/00059298-1b33-429c-a802-fa51bb662d72',
@@ -210,7 +212,18 @@ class TestONECache(unittest.TestCase):
 
         session_path = Path.home() / 'lab' / 'FMR008' / '2021-03-18' / '001' / 'alf'
         verifiable = self.one.eid_from_path(session_path)
-        self.assertEqual(verifiable, '513a9445-6f17-3730-83bc-019c91957a01')
+        self.assertEqual(verifiable, 'e7826370-21e5-3aad-ba01-4bd36d39ae3f')
+
+    def test_path_from_eid(self):
+        eid = 'e7826370-21e5-3aad-ba01-4bd36d39ae3f'
+        verifiable = self.one.path_from_eid(eid)
+        expected = Path(self.tempdir.name).joinpath('angelakilab', 'Subjects', 'FMR008',
+                                                    '2021-03-18', '001')
+        self.assertEqual(expected, verifiable)
+
+        with self.assertRaises(ValueError):
+            self.one.path_from_eid('fakeid')
+        self.assertIsNone(self.one.path_from_eid(eid.replace('a', 'b')))
 
     def test_check_exists(self):
         pass
@@ -221,8 +234,50 @@ class TestONECache(unittest.TestCase):
         self.assertTrue(len(dsets), 28)
 
         dsets = self.one.list_datasets('FMR019/2021-03-18/002')
-        self.assertIsInstance(dsets, pd.Dataframe)
+        self.assertIsInstance(dsets, pd.DataFrame)
         self.assertTrue(len(dsets), 7)
+
+    def test_load_session_dataset(self):
+        # Check download only
+        file = self.one.load_session_dataset('FMR019/2021-03-18/002', '_ibl_wheel.position.npy',
+                                             download_only=True)
+        self.assertIsInstance(file, Path)
+
+        # Check loading data
+        np.save(str(file), np.arange(3))  # Make sure we have something to load
+        dset = self.one.load_session_dataset('FMR019/2021-03-18/002', '_ibl_wheel.position.npy')
+        self.assertTrue(np.all(dset == np.arange(3)))
+
+        # Check revision filter
+        with self.assertRaises(iblerr.ALFObjectNotFound):
+            self.one.load_session_dataset('FMR019/2021-03-18/002', '_ibl_wheel.position.npy',
+                                          revision='v2.3.4')
+
+        # Check collection filter
+        file = self.one.load_session_dataset('FMR019/2021-03-18/002',
+                                             '_iblrig_leftCamera.frame_counter.bin',
+                                             download_only=True, collection='raw_video_data')
+        self.assertIsNotNone(file)
+
+    def test_load_dataset(self):
+        id = np.array([[-2578956635146322139, -3317321292073090886]])
+        file = self.one.load_dataset(id, download_only=True)
+        self.assertIsInstance(file, Path)
+        expected = 'FMR019/2021-03-18/002/alf/_ibl_wheel.position.npy'
+        self.assertTrue(file.as_posix().endswith(expected))
+
+        # Details
+        _, details = self.one.load_dataset(id, download_only=True, details=True)
+        self.assertIsInstance(details, pd.Series)
+
+        # Load file content with str id
+        np.save(str(file), np.arange(3))  # Ensure data to load
+        dset = self.one.load_dataset('257ff7ae-9ab4-35dc-bac0-245cdc81f6d1')
+        self.assertTrue(np.all(dset == np.arange(3)))
+
+        # Load file content with UUID
+        dset = self.one.load_dataset(UUID('257ff7ae-9ab4-35dc-bac0-245cdc81f6d1'))
+        self.assertTrue(np.all(dset == np.arange(3)))
 
     def test_load_object(self):
         wheel = self.one.load_object('FMR019/2021-03-18/002', 'wheel')
@@ -231,7 +286,43 @@ class TestONECache(unittest.TestCase):
         # dsets = dsets[dsets['dset_id'].str.contains('FMR019/2021-03-18/002/.*wheel.*')]
         # Path(self.tempdir.name, 'angelakilab', 'Subjects', 'FMR019', '2021-03-18').rmdir()
 
-    def load_load_dataset(self):
-        dset = self.one.load_dataset('mainenlab/Subjects/clns0730/2018-08-24/1',
-                                     'channels.clusters')
-        self.assertTrue(True)
+    def test_url_from_path(self):
+        file = Path(self.tempdir.name).joinpath('angelakilab', 'Subjects', 'FMR019', '2021-03-18',
+                                                '002', 'alf', '_ibl_wheel.position.npy')
+        url = self.one.url_from_path(file)
+        self.assertTrue(url.startswith(self.one._par.HTTP_DATA_SERVER))
+        self.assertTrue('257ff7ae-9ab4-35dc-bac0-245cdc81f6d1' in url)
+
+        file = file.parent / '_fake_obj.attr.npy'
+        self.assertIsNone(self.one.url_from_path(file))
+
+    def test_url_from_record(self):
+        dataset = self.one._cache['datasets'].loc[[[-2578956635146322139, -3317321292073090886]]]
+        url = self.one.url_from_record(dataset)
+        expected = ('https://ibl.flatironinstitute.org/'
+                    'angelakilab/Subjects/FMR019/2021-03-18/002/alf/'
+                    '_ibl_wheel.position.257ff7ae-9ab4-35dc-bac0-245cdc81f6d1.npy')
+        self.assertEqual(expected, url)
+
+    def test_record_from_path(self):
+        file = Path(self.tempdir.name).joinpath('angelakilab', 'Subjects', 'FMR019', '2021-03-18',
+                                                '002', 'alf', '_ibl_wheel.position.npy')
+        rec = self.one.record_from_path(file)
+        self.assertIsInstance(rec, pd.DataFrame)
+        rel_path, = rec['rel_path'].values
+        self.assertTrue(file.as_posix().endswith(rel_path))
+
+        file = file.parent / '_fake_obj.attr.npy'
+        self.assertIsNone(self.one.record_from_path(file))
+
+
+@unittest.skip
+class test_OneAlyx(unittest.TestCase):
+    def test_download_datasets(self):
+        eid = 'cf264653-2deb-44cb-aa84-89b82507028a'
+        one = ONE(
+            base_url='https://test.alyx.internationalbrainlab.org',
+            username='test_user',
+            password='TapetesBloc18'
+        )
+        files = one.download_datasets(['channels.brainLocation.tsv'])

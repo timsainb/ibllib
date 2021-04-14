@@ -13,6 +13,7 @@ from brainbox.core import Bunch
 _logger = logging.getLogger('ibllib')
 
 
+# TODO Deprecate
 def load(filename):
     """
     Loads parquet file into pandas dataframe
@@ -28,7 +29,7 @@ def load(filename):
     df = table.to_pandas()
     return df, metadata
 
-
+# TODO Deprecate
 def save(filename, table, metadata=None):
     """
     Save pandas dataframe to parquet
@@ -81,6 +82,17 @@ def np2str(eids_np):
     eids = str(eids) if isinstance(eids, uuid.UUID) else [str(u) for u in np2uuid(eids_np)]
     return eids
 
+
+def is_np_id(id):
+    """
+    The purpose of this is to correctly identify ids even as object arrays
+    :param id:
+    :return:
+    """
+    # TODO Document and test
+    id = np.asarray(id)
+    is_int = id.dtype == int or np.all(isinstance(x, int) for x in id)
+    return id.shape[1] == 2 and is_int
 
 def rec2col(rec, join=None, include=None, exclude=None, uuid_fields=None, types=None):
     """

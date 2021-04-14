@@ -361,7 +361,8 @@ def remove_uuid_file(file_path, dry=False):
     """
      Renames a file without the UUID and returns the new pathlib.Path object
     """
-    file_path = Path(file_path)
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
     name_parts = file_path.name.split('.')
     if not is_uuid_string(name_parts[-2]):
         return file_path
@@ -436,7 +437,8 @@ def get_session_path(path: Union[str, Path]) -> Path:
     if path is None:
         _logger.warning('Input path is None, exiting...')
         return
-    path = Path(path)
+    if isinstance(path, str):
+        path = Path(path)
     sess = None
     for i, p in enumerate(path.parts):
         if p.isdigit() and _isdatetime(path.parts[i - 1]):

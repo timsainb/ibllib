@@ -25,9 +25,9 @@ from alf.folders import session_path
 # -------------------------------------------------------------------------------------------------
 
 SESSIONS_COLUMNS = (
-    'eid_0',  # int64
-    'eid_1',  # int64
-    'eid',    # str
+    'id_0',  # int64
+    'id_1',  # int64
+    'eid',   # str
     'lab',
     'subject',
     'date',
@@ -37,10 +37,10 @@ SESSIONS_COLUMNS = (
 )
 
 DATASETS_COLUMNS = (
-    'dset_id',          # str
+    'id_0',             # int64
+    'id_1',             # int64
     'eid_0',            # int64
     'eid_1',            # int64
-    'eid',              # str
     'session_path',     # relative to the root
     'rel_path',         # relative to the session path, includes the filename
     'file_size',
@@ -48,6 +48,7 @@ DATASETS_COLUMNS = (
     'exists',
 )
 
+# FIXME Ignore hidden
 EXCLUDED_FILENAMES = ('.DS_Store', '.one_root')
 
 
@@ -274,6 +275,7 @@ def _make_datasets_df(root_dir):
 
 
 def _rel_path_to_uuid(df, id_key='rel_path', base_id=None):
+    # FIXME Should use session_path + rel_path
     base_id = base_id or uuid.uuid1()  # Base hash based on system by default
     toUUID = partial(uuid.uuid3, base_id)  # MD5 hash from base uuid and rel session path string
     uuids = df[id_key].map(toUUID)
@@ -293,6 +295,7 @@ def make_parquet_db(root_dir, out_dir=None, hash_ids=True):
     # Add integer id columns
     if hash_ids:
         ns = uuid.uuid1()
+        # FIXME Rename id columns
         _rel_path_to_uuid(df_dsets, id_key='dset_id', base_id=ns)
         _rel_path_to_uuid(df_ses, id_key='eid', base_id=ns)
         # Copy int eids into datasets frame

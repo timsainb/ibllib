@@ -138,7 +138,7 @@ def http_download_file_list(links_to_file_list, **kwargs):
     return file_names_list
 
 
-def http_download_file(full_link_to_file, chunks=None, *, clobber=False,
+def http_download_file(full_link_to_file, chunks=None, *, clobber=False, silent=False,
                        username='', password='', cache_dir='', return_md5=False, headers=None):
     """
     :param full_link_to_file: http link to the file.
@@ -151,8 +151,11 @@ def http_download_file(full_link_to_file, chunks=None, *, clobber=False,
     :type password: str
     :param cache_dir: [''] directory in which files are cached; defaults to user's
      Download directory.
-    :param: headers: [{}] additional headers to add to the request (auth tokens etc..)
     :type cache_dir: str
+    :param: headers: [{}] additional headers to add to the request (auth tokens etc..)
+    :type cache_dir: dict
+    :param: silent: [False] suppress download progress bar
+    :type silent: bool
 
     :return: (str) a list of the local full path of the downloaded files.
     """
@@ -205,8 +208,8 @@ def http_download_file(full_link_to_file, chunks=None, *, clobber=False,
         raise e
 
     file_size = int(u.getheader('Content-length'))
-
-    print(f"Downloading: {file_name} Bytes: {file_size}")
+    if not silent:
+        print(f"Downloading: {file_name} Bytes: {file_size}")
     file_size_dl = 0
     block_sz = 8192 * 64 * 8
 
@@ -220,7 +223,8 @@ def http_download_file(full_link_to_file, chunks=None, *, clobber=False,
         f.write(buffer)
         if return_md5:
             md5.update(buffer)
-        print_progress(file_size_dl, file_size, prefix='', suffix='')
+        if not silent:
+            print_progress(file_size_dl, file_size, prefix='', suffix='')
     f.close()
 
     return (file_name, md5.hexdigest()) if return_md5 else file_name

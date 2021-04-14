@@ -31,25 +31,25 @@ ALF_EXP = re.compile(
     r'(?P<extra>[.\w-]+)*\.'
     r'(?P<extension>\w+$)')
 
-"""The following are the """
+"""The following are the specifications and patterns for ALFs"""
 SESSION_SPEC = '{lab}/(Subjects/)?{subject}/{date}/{number}'
-COLLECTION_SPEC = r'{collection}/(#{revision}#/)?'
+COLLECTION_SPEC = r'{collection}(/#{revision}#)?'
 FILE_SPEC = r'_?{namespace}?_?{object}\.{attribute}_?{timescale}*\.?{extra}*\.{extension}$'
-FULL_SPEC = f'{SESSION_SPEC}/{COLLECTION_SPEC}{FILE_SPEC}'
-_DEFAULT = {
-    'lab': r'\w+',
-    'subject': r'[\w-]+',
-    'date': r'\d{4}-\d{2}-\d{2}',
-    'number': r'\d{1,3}',
-    'collection': r'[\w/]+',
-    'revision': r'[\w-]+',  # brackets
-    'namespace': '(?<=_)[a-zA-Z0-9]+',  # brackets
-    'object': r'\w+',
-    'attribute': r'[a-zA-Z0-9]+(?:_times(?=[_\b.])|_intervals(?=[_\b.]))?',  # brackets
-    'timescale': r'(?:_?)\w+',  # brackets
-    'extra': r'[.\w-]+',  # brackets
-    'extension': r'\w+'
-}
+FULL_SPEC = f'{SESSION_SPEC}/{COLLECTION_SPEC}/{FILE_SPEC}'
+_DEFAULT = (
+    ('lab', r'\w+'),
+    ('subject', r'[\w-]+'),
+    ('date', r'\d{4}-\d{2}-\d{2}'),
+    ('number', r'\d{1,3}'),
+    ('collection', r'[\w/]+'),
+    ('revision', r'[\w-]+'),  # brackets
+    ('namespace', '(?<=_)[a-zA-Z0-9]+'),  # brackets
+    ('object', r'\w+'),
+    ('attribute', r'[a-zA-Z0-9]+(?:_times(?=[_\b.])|_intervals(?=[_\b.]))?'),  # brackets
+    ('timescale', r'(?:_?)\w+'),  # brackets
+    ('extra', r'[.\w-]+'),  # brackets
+    ('extension', r'\w+')
+)
 
 
 def _named(pattern, name):
@@ -57,11 +57,30 @@ def _named(pattern, name):
     return f'(?P<{name}>{pattern})'
 
 
-def regex(spec: str = FULL_SPEC, fields: dict = None) -> str:
-    parts = _DEFAULT.copy()
-    if fields:
-        parts.update(fields)
-    return spec.format(**{k: _named(parts[k], k) for k in re.findall(r'(?<={)\w+', spec)})
+def regex(spec: str = FULL_SPEC, **kwargs) -> str:
+    """
+    Construct a regular expression pattern for parsing or validating an ALF
+
+    Examples:
+        # Regex for a filename
+        pattern = regex(spec=FILE_SPEC)
+
+        # Regex for a complete path (including root)
+        pattern = '.*' + regex(spec=FULL_SPEC)
+
+        # Regex pattern for specific object name
+        pattern = regex(object='trials)
+
+    :param spec: The spec string to construct the regular expression from
+    :param kwargs: Optional patterns to replace the defaults
+    :return: A regular expression pattern string
+    """
+    fields = dict(_DEFAULT)
+    if not fields.keys() >= kwargs.keys():
+        unknown = next(k for k in kwargs.keys() if k not in fields.keys())
+        raise KeyError(f'Unknown field "{unknown}"')
+    fields.update({k: v for k, v in kwargs.items() if v is not None})
+    return spec.format(**{k: _named(fields[k], k) for k in re.findall(r'(?<={)\w+', spec)})
 
 
 def is_valid(filename):
@@ -130,6 +149,32 @@ def alf_parts(filename, as_dict=False):
     return m.groupdict() if as_dict else m.groups()
 
 
+def _dromedary(string) -> str:
+    """
+    Convert a string to camel case.  Acronyms/initialisms are preserved.
+
+    Examples:
+        _dromedary('Hello world') == 'helloWorld'
+        _dromedary('motion_energy') == 'motionEnergy'
+        _dromedary('passive_RFM') == 'passive RFM'
+        _dromedary('FooBarBaz') == 'fooBarBaz'
+
+    :param string: To be converted to camel case
+    :return: The string in camel case
+    """
+    def _capitalize(x):
+        return x if x.isupper() else x.capitalize()
+    if not string:  # short circuit on None and ''
+        return string
+    first, *other = re.split(r'[_\s]', string)
+    if len(other) == 0:
+        # Already camel/Pascal case, ensure first letter lower case
+        return first[0].lower() + first[1:]
+    # Convert to camel case, preserving all-uppercase elements
+    first = first if first.isupper() else first.casefold()
+    return ''.join([first, *map(_capitalize, other)])
+
+
 def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=None):
     """
     Given a set of ALF file parts, return a valid ALF file name.  Essential periods and
@@ -170,6 +215,8 @@ def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=N
         raise ValueError('ALF parts must not contain a period (`.`)')
     if '_' in (namespace or ''):
         raise ValueError('Namespace must not contain extra underscores')
+    # Ensure parts are camel case (converts whitespace and snake case)
+    object, timescale = map(_dromedary, (object, timescale))
 
     # Optional extras may be provided as string or tuple of strings
     if not extra:
