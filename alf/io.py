@@ -447,6 +447,29 @@ def get_session_path(path: Union[str, Path]) -> Path:
     return sess
 
 
+def get_alf_path(path: Union[str, Path]) -> str:
+    """Returns the ALF part of a path or filename
+    TODO Add tests, docstring, etc.
+    """
+    if not isinstance(path, str):
+        path = Path(path).as_posix()
+    path = path.strip('/')
+
+    # Check if session path
+    match_session = re.search(files.regex(files.SESSION_SPEC), path)
+    if match_session:
+        return path[match_session.start():]
+
+    # Check if filename / relative path (i.e. collection + filename)
+    parts = path.rsplit('/', 1)
+    match_filename = re.match(files.regex(files.FILE_SPEC), parts[-1])
+    if match_filename:
+        if re.match(files.regex(f'{files.COLLECTION_SPEC}{files.FILE_SPEC}'), path):
+            return path
+        else:
+            return parts[-1]
+
+
 def is_session_path(path_object):
     """
     Checks if the syntax corresponds to a session path. Note that there is no physical check
