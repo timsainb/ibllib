@@ -20,7 +20,7 @@ class TestExtractors2Tasks(unittest.TestCase):
             ("_iblrig_tasks_biasedChoiceWorld3.7.0", "biased"),
             ("_iblrig_tasks_biasedScanningChoiceWorld5.2.3", "biased"),
             ("_iblrig_tasks_trainingChoiceWorld3.6.0", "training"),
-            ("_iblrig_tasks_trainingChoiceWorldWidefield", "ephys"),
+            ("_iblrig_tasks_trainingChoiceWorldWidefield", "ephys_training"),
             ("_iblrig_tasks_widefieldChoiceWorld", "ephys"),
             ("_iblrig_tasks_ephysChoiceWorld5.1.3", "ephys"),
             ("_iblrig_calibration_frame2TTL4.1.3", None),
@@ -339,6 +339,7 @@ class TestPipesMisc(unittest.TestCase):
         )
         # Verify it's been inserted
         alyx_insertion = one.alyx.rest("insertions", "list", session=eid)
+        alyx_insertion = [x for x in alyx_insertion if x["model"] == "3A"]
         self.assertTrue(alyx_insertion[0]["model"] == "3A")
         self.assertTrue(alyx_insertion[0]["name"] in ["probe00", "probe01"])
         self.assertTrue(alyx_insertion[1]["model"] == "3A")
@@ -420,4 +421,4 @@ class TestScanFixPassiveFiles(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(exit=False)
+    unittest.main(exit=False, verbosity=2)

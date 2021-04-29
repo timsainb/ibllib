@@ -70,7 +70,7 @@ class MotionAlignment:
     def set_roi(video_path):
         """Manually set the ROIs for a given set of videos
         TODO Improve docstring
-        TODO A method for setting ROIs by side
+        TODO A method for setting ROIs by label
         """
         frame = vidio.get_video_frame(str(video_path), 0)
 
@@ -146,6 +146,9 @@ class MotionAlignment:
         camera_times = self.data['camera_times'][side]
         cam_mask = self.alignment.to_mask(camera_times)
         frame_numbers, = np.where(cam_mask)
+
+        if frame_numbers.size == 0:
+            raise ValueError('No frames during given period')
 
         # Motion Energy
         camera_path = self.video_paths[side]

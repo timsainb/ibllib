@@ -10,16 +10,18 @@ import matplotlib.pyplot as plt
 
 from oneibl.stream import VideoStreamer
 import ibllib.dsp.utils as dsp
+from ibllib.misc import range_str
 from ibllib.plots import squares, vertical_lines
 from ibllib.io.video import assert_valid_label
 from brainbox.numerical import within_ranges
 from ibllib.io.extractors.base import get_session_extractor_type
-from ibllib.io.extractors.ephys_fpga import _get_sync_fronts, get_main_probe_sync
+from ibllib.io.extractors.ephys_fpga import get_sync_fronts, get_main_probe_sync
 import ibllib.io.raw_data_loaders as raw
 from ibllib.io.extractors.base import (
     BaseBpodTrialsExtractor,
     BaseExtractor,
     run_extractor_classes,
+    _get_task_types_json_config
 )
 
 _logger = logging.getLogger('ibllib')
@@ -34,9 +36,9 @@ def extract_camera_sync(sync, chmap=None):
     :return: dictionary containing camera timestamps
     """
     assert(chmap)
-    sr = _get_sync_fronts(sync, chmap['right_camera'])
-    sl = _get_sync_fronts(sync, chmap['left_camera'])
-    sb = _get_sync_fronts(sync, chmap['body_camera'])
+    sr = get_sync_fronts(sync, chmap['right_camera'])
+    sl = get_sync_fronts(sync, chmap['left_camera'])
+    sb = get_sync_fronts(sync, chmap['body_camera'])
     return {'right': sr.times[::2],
             'left': sl.times[::2],
             'body': sb.times[::2]}
@@ -94,7 +96,7 @@ class CameraTimestampsFPGA(BaseExtractor):
         if gpio is not None and gpio['indices'].size > 1:
             _logger.info('Aligning to audio TTLs')
             # Extract audio TTLs
-            audio = _get_sync_fronts(sync, chmap['audio'])
+            audio = get_sync_fronts(sync, chmap['audio'])
             _, ts = raw.load_camera_ssv_times(self.session_path, self.label)
             try:
                 """
@@ -227,6 +229,7 @@ class CameraTimestampsBpod(BaseBpodTrialsExtractor):
         cam_times = []
         n_frames = 0
         n_out_of_sync = 0
+        missed_trials = []
         for ind in np.arange(ntrials):
             # get upgoing and downgoing fronts
             pin = np.array(self.bpod_trials[ind]['behavior_data']
@@ -235,7 +238,7 @@ class CameraTimestampsBpod(BaseBpodTrialsExtractor):
                             ['Events timestamps'].get('Port1Out'))
             # some trials at startup may not have the camera working, discard
             if np.all(pin) is None:
-                _logger.debug('trial %i missing TTL events', ind)
+                missed_trials.append(ind)
                 continue
             # if the trial starts in the middle of a square, discard the first downgoing front
             if pout[0] < pin[0]:
@@ -257,6 +260,8 @@ class CameraTimestampsBpod(BaseBpodTrialsExtractor):
             cam_times.append(pin)
             n_frames += pin.size
 
+        if missed_trials:
+            _logger.debug('trial(s) %s missing TTL events', range_str(missed_trials))
         if n_out_of_sync > 0:
             _logger.warning(f"{n_out_of_sync} trials with bpod camera frame times not within"
                             f" 10% of the expected sampling rate")
@@ -377,7 +382,7 @@ def align_with_audio(timestamps, audio, pin_state, count,
     # Remove the rest of the dropped frames
     ts = ts[count]
     assert np.searchsorted(ts, audio['times'][0]) == first_uptick,\
-           'time of first audio TTL doesn\'t match after alignment'
+        'time of first audio TTL doesn\'t match after alignment'
     if ts.size != count.size:
         _logger.error('number of timestamps and frames don\'t match after alignment')
 
@@ -643,18 +648,18 @@ def extract_all(session_path, session_type=None, save=True, **kwargs):
     """
     if session_type is None:
         session_type = get_session_extractor_type(session_path)
-    if session_type == 'ephys':
+    if not session_type or session_type not in _get_task_types_json_config().values():
+        raise ValueError(f"Session type {session_type} has no matching extractor")
+    elif 'ephys' in session_type:  # assume ephys == FPGA
         labels = assert_valid_label(kwargs.pop('labels', ('left', 'right', 'body')))
         labels = (labels,) if isinstance(labels, str) else labels  # Ensure list/tuple
         extractor = [partial(CameraTimestampsFPGA, label) for label in labels]
         if 'sync' not in kwargs:
             kwargs['sync'], kwargs['chmap'] = \
                 get_main_probe_sync(session_path, bin_exists=kwargs.pop('bin_exists', False))
-    elif session_type in ['biased', 'training', 'habituation']:
+    else:  # assume Bpod otherwise
         assert kwargs.pop('labels', 'left'), 'only left camera is currently supported'
         extractor = CameraTimestampsBpod
-    else:
-        raise ValueError(f"Session type {session_type} as no matching extractor {session_path}")
 
     outputs, files = run_extractor_classes(
         extractor, session_path=session_path, save=save, **kwargs)
