@@ -313,7 +313,7 @@ class ScatterPlot(DefaultPlot):
         :return:
         """
         self.set_color()
-        self.set_marker_size()
+        self.set_marker_size(8)
         self.set_marker_type('o')
         self.set_opacity()
         self.set_line_color()

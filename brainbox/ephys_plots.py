@@ -138,11 +138,27 @@ def scatter_raster_plot(spike_amps, spike_depths, spike_times, n_amp_bins=10, cm
     data = ScatterPlot(x=spike_times[0:-1:subsample_factor], y=spike_depths[0:-1:subsample_factor],
                        c=spike_amps * 1e6, cmap='BuPu')
     data.set_ylim((0, 3840))
-    data.set_color(color=spike_colors)
+    #data.set_color(color=spike_colors)
     data.set_clim(clim=amp_range * 1e6)
     data.set_marker_size(marker_size=spike_size)
     data.set_labels(title='Spike times vs Spike depths', xlabel='Time (s)',
                     ylabel='Distance from probe tip (um)', clabel='Spike amplitude (uV)')
+
+    if display:
+        fig, ax = plot_scatter(data.convert2dict())
+        return data.convert2dict(), fig, ax
+
+    return data
+
+
+def scatter_cluster_plot(spike_clusters, spike_depths, spike_times, subsample_factor=100,
+                         display=False):
+    data = ScatterPlot(x=spike_times[0:-1:subsample_factor], y=spike_depths[0:-1:subsample_factor],
+                       c=spike_clusters[0:-1:subsample_factor], cmap='tab10')
+    data.set_marker_size(4)
+    data.set_ylim((0, 3840))
+    data.set_labels(title='Spike times vs Spike depths', xlabel='Time (s)',
+                    ylabel='Distance from probe tip (um)', clabel='Cluster Number')
 
     if display:
         fig, ax = plot_scatter(data.convert2dict())
@@ -230,10 +246,14 @@ def scatter_amp_depth_fr_plot(spike_amps, spike_clusters, spike_depths, spike_ti
     cluster, cluster_depth, n_cluster = compute_cluster_average(spike_clusters, spike_depths)
     _, cluster_amp, _ = compute_cluster_average(spike_clusters, spike_amps)
     cluster_amp = cluster_amp * 1e6
-    cluster_fr = n_cluster / np.max(spike_times)
+    cluster_fr = n_cluster / (np.max(spike_times) - np.min(spike_times))
 
     data = ScatterPlot(x=cluster_amp, y=cluster_depth, c=cluster_fr, cmap=cmap)
+    data.set_ylim((0, 3840))
     data.set_xlim((0.9 * np.min(cluster_amp), 1.1 * np.max(cluster_amp)))
+    data.set_labels(xlabel='Amplitude (uV)',
+                    ylabel='Distance from probe tip (um)', clabel='Firing Rate (Hz)')
+    data.set_clim(clim=(np.min(cluster_fr), np.max(cluster_fr)))
 
     if display:
         fig, ax = plot_scatter(data.convert2dict())
