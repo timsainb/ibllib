@@ -35,7 +35,8 @@ class TestONEParams(unittest.TestCase):
         params.setup()
 
     def test_setup_silent(self):
-        self.assertIsNone(iopar.read(params._PAR_ID_STR))
+        with self.assertRaises(FileNotFoundError):
+            iopar.read(params._PAR_ID_STR)
         params.setup_silent()
         par = iopar.read(params._PAR_ID_STR)
         self.assertIsNotNone(par)
@@ -58,4 +59,4 @@ class TestONEParams(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(exit=False)
+    unittest.main(exit=False, verbosity=2)

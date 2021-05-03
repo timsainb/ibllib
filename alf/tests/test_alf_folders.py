@@ -7,6 +7,7 @@ import alf.folders
 
 
 class TestALFFolders(unittest.TestCase):
+    tempdir = None
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -42,6 +43,16 @@ class TestALFFolders(unittest.TestCase):
         with self.assertRaises(AssertionError):
             alf.folders.next_num_folder(self.session_path.parent)
 
+    def test_remove_empty_folders(self):
+        root = Path(self.tempdir.name) / 'glob_dir'
+        root.mkdir()
+        root.joinpath('empty0').mkdir(exist_ok=True)
+        root.joinpath('full0').mkdir(exist_ok=True)
+        root.joinpath('full0', 'file.txt').touch()
+        self.assertTrue(len(list(root.glob('*'))) == 2)
+        alf.folders.remove_empty_folders(root)
+        self.assertTrue(len(list(root.glob('*'))) == 1)
 
-if __name__ == '__main__':
-    unittest.main()
+
+if __name__ == "__main__":
+    unittest.main(exit=False, verbosity=2)

@@ -166,7 +166,7 @@ class ConversionMixin:
 
     def path_from_url(self, url):
         import alf.files
-        alfio.
+        # alfio.
 
     def ref_from_eid(self, eid):
         pass
