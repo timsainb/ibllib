@@ -135,8 +135,9 @@ class One(ConversionMixin):
 
     def __init__(self, cache_dir=None, silent=None):
         # get parameters override if inputs provided
+        super().__init__()
         self._par = oneibl.params.get(silent=silent)
-        self._par = self._par.set('CACHE_DIR', cache_dir or self._par.CACHE_DIR)
+        self._cache_dir = self._par.set('CACHE_DIR', cache_dir or self._par.CACHE_DIR)
         self._web_client = None
         self.cache_expiry = timedelta(hours=24)
         # init the cache file
@@ -813,7 +814,7 @@ class OneAlyx(One):
         load_object(eid, 'trials')
         load_object(eid, 'spikes', collection='*probe01')
         """
-        if query_type != 'remote':
+        if query_type != 'remote' or (query_type == 'auto' and self.offline == True):
             return super().load_object(eid, obj,
                                        collection=collection,
                                        download_only=download_only,

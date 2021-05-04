@@ -1,3 +1,9 @@
+"""
+Scenarios:
+    - Load ONE with a cache dir: tries to load the Web client params from the dir
+    - Load ONE with http address - gets cache dir from the address?
+
+"""
 import os
 from ibllib.io import params as iopar
 from getpass import getpass
@@ -6,13 +12,14 @@ from ibllib.graphic import login
 
 
 _PAR_ID_STR = 'one_params'
+_CLIENT_ID_STR = 'web_client_params'
 
 
 def default():
     par = {"ALYX_LOGIN": "test_user",
            "ALYX_PWD": "TapetesBloc18",
            "ALYX_URL": "https://test.alyx.internationalbrainlab.org",
-           "CACHE_DIR": str(Path.home() / "Downloads" / "FlatIron"),
+           "CACHE_DIR": str(Path.home() / "Downloads" / "ONE"),  # TODO Remove
            "HTTP_DATA_SERVER": "https://ibl.flatironinstitute.org",
            "HTTP_DATA_SERVER_LOGIN": "iblmember",
            "HTTP_DATA_SERVER_PWD": None,
@@ -77,8 +84,31 @@ def setup():
 
 def get(silent=False):
     par = iopar.read(_PAR_ID_STR, {})
+    par = _patch_params(par)
     if not par and not silent:
         setup()
     elif not par and silent:
         setup_silent()
     return iopar.read(_PAR_ID_STR, default=default())
+
+
+def _patch_params(old_par):
+    """
+    Copy over old parameters to the new cache dir based format
+    :return: new parameters
+    """
+    if getattr(old_par, 'HTTP_DATA_SERVER_PWD', None):
+        # Copy pars to cache dir
+        assert old_par.CACHE_DIR
+        cache_dir = Path(old_par.CACHE_DIR)
+        if not cache_dir.exists():
+            cache_dir.mkdir()
+        new_web_client_pars = {k: v for k, v in old_par.as_dict().items() if k in default()}
+        iopar.write(_CLIENT_ID_STR, new_web_client_pars)
+        new_one_pars = {
+            old_par.ALYX_URL: old_par.CACHE_DIR
+        }
+        iopar.write(_PAR_ID_STR, new_one_pars)
+        return new_one_pars
+    else:
+        return old_par
