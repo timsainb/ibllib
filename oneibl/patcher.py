@@ -7,6 +7,7 @@ import logging
 import globus_sdk
 
 from ibllib.io import globus
+from oneibl.webclient import SDSC_ROOT_PATH
 import alf.io
 from oneibl.registration import register_dataset
 
@@ -16,7 +17,6 @@ FLAT_IRON_GLOBUS_ID = 'ab2d064c-413d-11eb-b188-0ee0d5d9299f'
 FLATIRON_HOST = 'ibl.flatironinstitute.org'
 FLATIRON_PORT = 61022
 FLATIRON_USER = 'datauser'
-FLATIRON_MOUNT = '/mnt/ibl'
 FTP_HOST = 'test.alyx.internationalbrainlab.org'
 FTP_PORT = 21
 DMZ_REPOSITORY = 'ibl_patcher'  # in alyx, the repository name containing the patched filerecords
@@ -57,9 +57,9 @@ class Patcher(abc.ABC):
         remote_path = Path(fr['data_repository_path']).joinpath(fr['relative_path'])
         remote_path = alf.io.add_uuid_string(remote_path, dset_id).as_posix()
         if remote_path.startswith('/'):
-            full_remote_path = PurePosixPath(FLATIRON_MOUNT + remote_path)
+            full_remote_path = PurePosixPath(str(SDSC_ROOT_PATH) + remote_path)
         else:
-            full_remote_path = PurePosixPath(FLATIRON_MOUNT, remote_path)
+            full_remote_path = PurePosixPath(SDSC_ROOT_PATH, remote_path)
         if not ftp:
             path = globus.as_globus_path(path)  # Ensure POSIX path
         status = self._scp(path, full_remote_path, dry=dry)[0]
@@ -197,7 +197,7 @@ class GlobusPatcher(Patcher):
         return 0, ''
 
     def _rm(self, flatiron_path, dry=True):
-        flatiron_path = Path('/').joinpath(flatiron_path.relative_to(Path(FLATIRON_MOUNT)))
+        flatiron_path = PurePosixPath('/').joinpath(flatiron_path.relative_to(SDSC_ROOT_PATH))
         _logger.info(f"Globus del {flatiron_path}")
         if not dry:
             if isinstance(self.globus_delete, globus_sdk.transfer.data.DeleteData):

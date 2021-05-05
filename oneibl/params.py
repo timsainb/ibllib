@@ -5,21 +5,22 @@ Scenarios:
 
 """
 import os
+import re
 from ibllib.io import params as iopar
 from getpass import getpass
 from pathlib import Path
 from ibllib.graphic import login
 
-
-_PAR_ID_STR = 'one_params'
-_CLIENT_ID_STR = 'web_client_params'
+_PAR_ID_STR = 'one'
+_CLIENT_ID_STR = 'caches'
+CACHE_DIR_DEFAULT = str(Path.home() / "Downloads" / "ONE")
 
 
 def default():
+    """Default WebClient parameters"""
     par = {"ALYX_LOGIN": "test_user",
            "ALYX_PWD": "TapetesBloc18",
            "ALYX_URL": "https://test.alyx.internationalbrainlab.org",
-           "CACHE_DIR": str(Path.home() / "Downloads" / "ONE"),  # TODO Remove
            "HTTP_DATA_SERVER": "https://ibl.flatironinstitute.org",
            "HTTP_DATA_SERVER_LOGIN": "iblmember",
            "HTTP_DATA_SERVER_PWD": None,
@@ -71,7 +72,7 @@ def setup():
 
     # default to home dir if empty dir somehow made it here
     if len(par['CACHE_DIR']) == 0:
-        par['CACHE_DIR'] = str(Path.home() / "Downloads" / "FlatIron")
+        par['CACHE_DIR'] = CACHE_DIR_DEFAULT
 
     par = iopar.from_dict(par)
 
@@ -82,33 +83,66 @@ def setup():
     print('ONE Parameter file location: ' + iopar.getfile(_PAR_ID_STR))
 
 
-def get(silent=False):
-    par = iopar.read(_PAR_ID_STR, {})
-    par = _patch_params(par)
-    if not par and not silent:
-        setup()
-    elif not par and silent:
-        setup_silent()
-    return iopar.read(_PAR_ID_STR, default=default())
+def get(silent=False, client=None):
+    if client:
+        client = re.sub('^https?://', '', client).replace('/', '')
+    cache_map = iopar.read(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', {})
+    if not cache_map:  # This can be removed in the future
+        cache_map = _patch_params()
+    if not cache_map and not silent:
+        cache_map = setup()  # TODO Return par
+    elif not cache_map and silent:
+        cache_map = setup_silent()
+    # return iopar.read(_PAR_ID_STR, default=default())
+    cache = cache_map.CLIENT_MAP[client or cache_map.DEFAULT]
+    return iopar.read(f'{_PAR_ID_STR}/{client or cache_map.DEFAULT}').set('CACHE_DIR', cache)
 
 
-def _patch_params(old_par):
+def get_cache_dir() -> Path:
+    cache_map = iopar.read(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', {})
+    cache_dir = Path(cache_map.CLIENT_MAP[cache_map.DEFAULT] if cache_map else CACHE_DIR_DEFAULT)
+    cache_dir.mkdir(exist_ok=True, parents=True)
+    return cache_dir
+
+
+def _check_cache_conflict(cache_dir):
+    cache_map = iopar.read(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', {}).get('CLIENT_MAP', None)
+    if cache_map:
+        assert not any(x == str(cache_dir) for x in cache_map.values())
+
+
+def _patch_params():
     """
     Copy over old parameters to the new cache dir based format
     :return: new parameters
     """
+    OLD_PAR_STR = 'one_params'
+    old_par = iopar.read(OLD_PAR_STR, {})
+    par = None
     if getattr(old_par, 'HTTP_DATA_SERVER_PWD', None):
-        # Copy pars to cache dir
+        # Copy pars to new location
         assert old_par.CACHE_DIR
         cache_dir = Path(old_par.CACHE_DIR)
-        if not cache_dir.exists():
-            cache_dir.mkdir()
-        new_web_client_pars = {k: v for k, v in old_par.as_dict().items() if k in default()}
-        iopar.write(_CLIENT_ID_STR, new_web_client_pars)
-        new_one_pars = {
-            old_par.ALYX_URL: old_par.CACHE_DIR
+        cache_dir.mkdir(exist_ok=True)
+
+        # Save web client parameters
+        new_web_client_pars = {k: v for k, v in old_par.as_dict().items()
+                               if k in default().as_dict()}
+        cache_name = re.sub('^https?://', '', old_par.ALYX_URL).replace('/', '')
+        iopar.write(f'{_PAR_ID_STR}/{cache_name}', new_web_client_pars)
+
+        # Add to cache map
+        cache_map = {
+            'CLIENT_MAP': {
+                cache_name: old_par.CACHE_DIR
+            },
+            'DEFAULT': cache_name
         }
-        iopar.write(_PAR_ID_STR, new_one_pars)
-        return new_one_pars
-    else:
-        return old_par
+        iopar.write(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', cache_map)
+        par = iopar.from_dict(cache_map)
+
+    # Remove the old parameters file
+    old_path = Path(iopar.getfile(OLD_PAR_STR))
+    old_path.unlink(missing_ok=True)
+
+    return par

@@ -30,6 +30,7 @@ Points of discussion:
       This would allow for multiple database cache directories and solve tests issue.
     - Do we need the cache dir to be a param for every function?
     - Need to check performance of 1. (re)setting index, 2. converting object array to 2D int array
+    - Conceivably you could have a subclass for Figshare, etc., not just Alyx
 """
 import abc
 import concurrent.futures
@@ -46,7 +47,6 @@ import shutil
 from typing import Any, Sequence, Union, Optional, List, Dict
 from uuid import UUID
 
-import requests
 import pandas as pd
 import numpy as np
 
@@ -133,12 +133,12 @@ class One(ConversionMixin):
         'dataset', 'date_range', 'laboratory', 'number', 'project', 'subject', 'task_protocol'
     )
 
-    def __init__(self, cache_dir=None, silent=None):
+    def __init__(self, cache_dir=None):
         # get parameters override if inputs provided
         super().__init__()
-        self._par = oneibl.params.get(silent=silent)
-        self._cache_dir = self._par.set('CACHE_DIR', cache_dir or self._par.CACHE_DIR)
-        self._web_client = None
+        self._par = oneibl.params.get(client=False)
+        if cache_dir:
+            self._par.set('CACHE_DIR', cache_dir)
         self.cache_expiry = timedelta(hours=24)
         # init the cache file
         self._load_cache()
@@ -633,39 +633,21 @@ def ONE(offline=False, **kwargs):
 
 
 class OneAlyx(One):
-    def __init__(self, username=None, password=None, base_url=None, cache_dir=None, **kwargs):
+    def __init__(self, username=None, password=None, base_url=None, **kwargs):
+        # Load Alyx Web client
+        self._web_client = wc.AlyxClient(username=username,
+                                         password=password,
+                                         base_url=base_url,
+                                         silent=kwargs.pop('silent', False))
         # get parameters override if inputs provided
         super(OneAlyx, self).__init__(**kwargs)
-        self.silent = kwargs.pop('silent', False)
-        self._par = oneibl.params.get(silent=self.silent)
-        self._par = self._par.set('ALYX_LOGIN', username or self._par.ALYX_LOGIN)
-        self._par = self._par.set('ALYX_URL', base_url or self._par.ALYX_URL)
-        self._par = self._par.set('ALYX_PWD', password or self._par.ALYX_PWD)
-        self._par = self._par.set('CACHE_DIR', cache_dir or self._par.CACHE_DIR)
-        try:
-            self._web_client = wc.AlyxClient(username=self._par.ALYX_LOGIN,
-                                             password=self._par.ALYX_PWD,
-                                             base_url=self._par.ALYX_URL)
-            # Display output when instantiating ONE
-            if not self.silent:
-                print(f"Connected to {self._par.ALYX_URL} as {self._par.ALYX_LOGIN}", )
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError(
-                f"Can't connect to {self._par.ALYX_URL}.\n" +
-                "IP addresses are filtered on IBL database servers. \n" +
-                "Are you connecting from an IBL participating institution ?"
-            )
 
     def _load_cache(self, cache_dir=None):
         # Download the remote cache files
-        # FIXME change http_download_file_list to download cache to root of cache dir
         TABLES = ('sessions', 'datasets')
         cache_dir = cache_dir or self._par.CACHE_DIR
-        cache_urls = [f'{self._par.HTTP_DATA_SERVER}/json/{x}.pqt' for x in TABLES]
-        files = wc.http_download_file_list(cache_urls,
-                                           username=self._par.HTTP_DATA_SERVER_LOGIN,
-                                           password=self._par.HTTP_DATA_SERVER_PWD,
-                                           cache_dir=cache_dir, clobber=True, return_md5=False)
+        files = self.alyx.download_file([f'/json/{x}.pqt' for x in TABLES],
+                                        cache_dir=cache_dir, clobber=True, return_md5=False)
         assert len(files) == len(TABLES) and all(files)
         super(OneAlyx, self)._load_cache(Path(files[0]).parent)
 
@@ -1028,7 +1010,7 @@ class OneAlyx(One):
     #     if details:
     #         for s in ses:
     #             if all([s.get('lab'), s.get('subject'), s.get('start_time')]):
-    #                 s['local_path'] = str(Path(self._par.CACHE_DIR, s['lab'], 'Subjects',
+    #                 s['local_path'] = str(Path(self._cache_dir, s['lab'], 'Subjects',
     #                                            s['subject'], s['start_time'][:10],
     #                                            str(s['number']).zfill(3)))
     #             else:
@@ -1078,8 +1060,8 @@ class OneAlyx(One):
             self.alyx.rest('files', 'partial_update', id=fr[0]['url'][-36:],
                            data={'json': json_field})
 
-    def _download_file(self, url, target_dir, clobber=False, offline=False, keep_uuid=False,
-                       file_size=None, hash=None):
+    def _download_file(self, url, target_dir,
+                       clobber=False, offline=False, keep_uuid=False, file_size=None, hash=None):
         """
         Downloads a single file from an HTTP webserver
         :param url:
@@ -1106,9 +1088,7 @@ class OneAlyx(One):
             clobber = True
         if clobber and not offline:
             local_path, md5 = self.alyx.download_file(
-                url, username=self._par.HTTP_DATA_SERVER_LOGIN,
-                password=self._par.HTTP_DATA_SERVER_PWD, cache_dir=str(target_dir),
-                clobber=clobber, return_md5=True, silent=self.silent)
+                url, cache_dir=str(target_dir), clobber=clobber, return_md5=True)
             # post download, if there is a mismatch between Alyx and the newly downloaded file size
             # or hash flag the offending file record in Alyx for database maintenance
             hash_mismatch = hash and md5 != hash

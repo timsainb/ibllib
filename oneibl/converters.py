@@ -31,6 +31,7 @@ def recurse(func):
             return func(first, *args, **kwargs)
     return wrapper_decorator
 
+
 class ConversionMixin:
 
     def __init__(self):

@@ -11,6 +11,7 @@ import hashlib
 import requests
 
 from ibllib.misc import pprint, print_progress
+import oneibl.params
 
 SDSC_ROOT_PATH = PurePosixPath('/mnt/ibl')
 _logger = logging.getLogger('ibllib')
@@ -167,7 +168,7 @@ def http_download_file(full_link_to_file, chunks=None, *, clobber=False, silent=
      Download directory.
     :type cache_dir: str
     :param: headers: [{}] additional headers to add to the request (auth tokens etc..)
-    :type cache_dir: dict
+    :type headers: dict
     :param: silent: [False] suppress download progress bar
     :type silent: bool
 
@@ -304,8 +305,10 @@ class AlyxClient(metaclass=UniqueSingletons):
     Class that implements simple GET/POST wrappers for the Alyx REST API
     http://alyx.readthedocs.io/en/latest/api.html
     """
+    _token = None  # TODO Check is compatible with singleton
+    _headers = None
 
-    def __init__(self, **kwargs):
+    def __init__(self, base_url=None, username=None, password=None, silent=False, **kwargs):
         """
         Create a client instance that allows to GET and POST to the Alyx server
         For oneibl, constructor attempts to authenticate with credentials in params.py
@@ -318,7 +321,11 @@ class AlyxClient(metaclass=UniqueSingletons):
         :param base_url: Alyx server address, including port and protocol
         :type base_url: str
         """
-        self.authenticate(**kwargs)
+        self.silent = silent
+        self._par = oneibl.params.get(client=base_url, silent=self.silent)
+        self._par = self._par.set('ALYX_LOGIN', username or self._par.ALYX_LOGIN)
+        self._par = self._par.set('ALYX_PWD', password or self._par.ALYX_PWD)
+        self.authenticate()
         self._headers['Accept'] = 'application/coreapi+json'
         self._rest_schemes = self.get('/docs')
         # the mixed accept application may cause errors sometimes, only necessary for the docs
@@ -327,40 +334,39 @@ class AlyxClient(metaclass=UniqueSingletons):
 
     def _generic_request(self, reqfunction, rest_query, data=None, files=None):
         # makes sure the base url is the one from the instance
-        rest_query = rest_query.replace(self._base_url, '')
+        rest_query = rest_query.replace(self._par.ALYX_URL, '')
         if not rest_query.startswith('/'):
             rest_query = '/' + rest_query
-        _logger.debug(f"{self._base_url + rest_query}, headers: {self._headers}")
+        _logger.debug(f"{self._par.ALYX_URL + rest_query}, headers: {self._headers}")
         headers = self._headers.copy()
         if files is None:
             data = json.dumps(data) if isinstance(data, dict) or isinstance(data, list) else data
             headers['Content-Type'] = 'application/json'
-        r = reqfunction(self._base_url + rest_query, stream=True, headers=headers,
+        r = reqfunction(self._par.ALYX_URL + rest_query, stream=True, headers=headers,
                         data=data, files=files)
         if r and r.status_code in (200, 201):
             return json.loads(r.text)
         elif r and r.status_code == 204:
             return
         else:
-            _logger.error(self._base_url + rest_query)
+            _logger.error(self._par.ALYX_URL + rest_query)
             _logger.error(r.text)
             raise(requests.HTTPError(r))
 
-    def authenticate(self, username='', password='', base_url=''):
+    def authenticate(self):
         """
         Gets a security token from the Alyx REST API to create requests headers.
-        Credentials are in the params_secret_template.py file
-
-        :param username: Alyx database user
-        :type username: str
-        :param password: Alyx database password
-        :type password: str
-        :param base_url: Alyx server address, including port and protocol
-        :type base_url: str
+        Credentials are loaded via oneibl.params
         """
-        self._base_url = base_url
-        rep = requests.post(base_url + '/auth-token',
-                            data=dict(username=username, password=password))
+        try:
+            credentials = {'username': self._par.ALYX_LOGIN, 'password': self._par.ALYX_PWD}
+            rep = requests.post(self._par.ALYX_URL + '/auth-token', data=credentials)
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Can't connect to {self._par.ALYX_URL}.\n" +
+                "IP addresses are filtered on IBL database servers. \n" +
+                "Are you connecting from an IBL participating institution ?"
+            )
         # Assign token or raise exception on internal server error
         self._token = rep.json() if rep.ok else rep.raise_for_status()
         if not (list(self._token.keys()) == ['token']):
@@ -369,6 +375,8 @@ class AlyxClient(metaclass=UniqueSingletons):
         self._headers = {
             'Authorization': 'Token {}'.format(list(self._token.values())[0]),
             'Accept': 'application/json'}
+        if not self.silent:
+            print(f"Connected to {self._par.ALYX_URL} as {self._par.ALYX_LOGIN}")
 
     def delete(self, rest_query):
         """
@@ -386,12 +394,39 @@ class AlyxClient(metaclass=UniqueSingletons):
 
     def download_file(self, url, **kwargs):
         """
-        Downloads a file on the Alyx server from a filerecord REST field URL
-        :param url: full url of the file
+        Downloads a file on the Alyx server from a file record REST field URL
+        :param url: full url(s) of the file(s)
         :param kwargs: webclient.http_download_file parameters
-        :return: local path of downloaded file
+        :return: local path(s) of downloaded file(s)
         """
-        return http_download_file(url, headers=self._headers, **kwargs)
+        if isinstance(url, str):
+            url = self._validate_file_url(url)
+            download_fcn = http_download_file
+        else:
+            url = (self._validate_file_url(x) for x in url)
+            download_fcn = http_download_file_list
+        pars = dict(
+            headers=self._headers,
+            silent=kwargs.pop('silent', self.silent),
+            cache_dir=kwargs.pop('cache_dir', self._par.CACHE_DIR),
+            username=self._par.HTTP_DATA_SERVER_LOGIN,
+            password=self._par.HTTP_DATA_SERVER_PWD,
+            **kwargs
+        )
+        return download_fcn(url, **pars)
+
+    def _validate_file_url(self, url):
+        """
+        TODO Document
+        :param url:
+        :return:
+        """
+        base_url = self._par.HTTP_DATA_SERVER
+        if url.startswith('http'):
+            assert url.startswith(base_url)
+        elif not url.startswith(base_url):
+            url = f'{base_url}/{url.strip("/")}'
+        return url
 
     def get(self, rest_query):
         """
