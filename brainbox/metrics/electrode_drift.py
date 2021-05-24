@@ -28,21 +28,23 @@ def estimate_drift(spike_times, spike_amps, spike_depths, display=False):
 
     # experimental: try the amp with a log scale
     nd = int(np.ceil(np.nanmax(spike_depths) / DEPTH_BIN_UM))
+    # some neuropixel 2.0 go negative?
+    nm = np.min([0, int(np.floor(np.nanmin(spike_depths) / DEPTH_BIN_UM))])
     tmin, tmax = (np.min(spike_times), np.max(spike_times))
     nt = int((np.ceil(tmax) - np.floor(tmin)) / DT_SECS)
 
     # 3d histogram of spikes along amplitude, depths and time
-    atd_hist = np.zeros((N_AMP, nt, nd), dtype=np.single)
+    atd_hist = np.zeros((N_AMP, nt, nd + np.abs(nm)), dtype=np.single)
     abins = (np.log10(spike_amps * 1e6) - AMP_BIN_LOG10[0]) / np.diff(AMP_BIN_LOG10) * N_AMP
     abins = np.minimum(np.maximum(0, np.floor(abins)), N_AMP - 1)
 
     for i, abin in enumerate(np.unique(abins)):
         inds = np.where(np.logical_and(abins == abin, ~np.isnan(spike_depths)))[0]
         a, _, _ = bincount2D(spike_depths[inds], spike_times[inds], DEPTH_BIN_UM, DT_SECS,
-                             [0, nd * DEPTH_BIN_UM], [np.floor(tmin), np.ceil(tmax)])
+                             [nm * DEPTH_BIN_UM, nd * DEPTH_BIN_UM], [np.floor(tmin), np.ceil(tmax)])
         atd_hist[i] = a[:-1, :-1]
 
-    fdscale = np.abs(np.fft.fftfreq(nd, d=DEPTH_BIN_UM))
+    fdscale = np.abs(np.fft.fftfreq(nd+np.abs(nm), d=DEPTH_BIN_UM))
     # k-filter along the depth direction
     lp = dsp.fourier._freq_vector(fdscale, np.array([1 / 16, 1 / 8]), typ='lp')
     # compute the depth lag by xcorr
