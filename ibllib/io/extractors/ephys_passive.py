@@ -158,12 +158,13 @@ def _get_passive_spacers(session_path, sync=None, sync_map=None):
 
     # Check correct number of spacers found
     n_exp_spacer = np.sum(np.array(meta["STIM_ORDER"]) == 0)  # Hardcoded 0 for spacer
-    if n_exp_spacer != np.size(spacer_times) / 2:
+    n_actual_spacers = np.size(spacer_times) / 2
+    if n_exp_spacer < n_actual_spacers:
         raise ValueError(
-            f"The number of expected spacer ({n_exp_spacer}) "
-            f"is different than the one found on the raw "
-            f"trace ({np.size(spacer_times)/2})"
-        )
+            f"Too many spacers detected ({n_actual_spacers}): expected ({n_exp_spacer}) spacers ")
+    elif n_exp_spacer > n_actual_spacers:
+        raise ValueError(
+            f"Too few spacers detected ({n_actual_spacers}): expected ({n_exp_spacer}) spacers ")
 
     spacer_times = np.r_[spacer_times.flatten(), sync["times"][-1]]
     return spacer_times[0], spacer_times[1::2], spacer_times[2::2]
