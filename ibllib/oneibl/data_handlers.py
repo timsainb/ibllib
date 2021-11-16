@@ -8,7 +8,7 @@ import abc
 from time import time
 
 from one.util import filter_datasets
-from one.alf.files import add_uuid_string
+from one.alf.files import add_uuid_string, session_path_parts
 from iblutil.io.parquet import np2str
 from ibllib.oneibl.registration import register_dataset
 from ibllib.oneibl.patcher import FTPPatcher, SDSCPatcher, SDSC_ROOT_PATH, SDSC_PATCH_PATH
@@ -233,8 +233,12 @@ class RemoteAwsDataHandler(DataHandler):
         :param signature: input and output file signatures
         :param one: ONE instance
         """
+        from one.globus import Globus
         super().__init__(session_path, signature, one=one)
         self.aws = AWS(one=self.one)
+        self.globus = Globus(client_name='server')
+        self.lab = session_path_parts(self.session_path, as_dict=True)['lab']
+        self.globus.add_endpoint(f'flatiron_{self.lab}')
 
     def setUp(self):
         """
@@ -251,10 +255,61 @@ class RemoteAwsDataHandler(DataHandler):
         :param version: ibllib version
         :return: output info of registered datasets
         """
+
+        # register datasets
         versions = super().uploadData(outputs, version)
-        ftp_patcher = FTPPatcher(one=self.one)
-        return ftp_patcher.create_dataset(path=outputs, created_by=self.one.alyx.user,
-                                          versions=versions, **kwargs)
+        response = register_dataset(outputs, one=self.one, server_only=True, **kwargs)
+
+        # upload directly via globus
+        source_paths = []
+        target_paths = []
+        collections = {}
+
+        for dset, out in zip(response, outputs):
+            assert (Path(out).name == dset['name'])
+            # set flag to false
+            fr = next(fr for fr in dset['file_records'] if 'flatiron' in fr['data_repository'])
+            collection = '/'.join(fr['relative_path'].split('/')[:-1])
+            if collection in collections.keys():
+                collections[collection].update({f'{dset["name"]}': {'fr_id': fr['id'], 'size': dset['file_size']}})
+            else:
+                collections[collection] = {f'{dset["name"]}': {'fr_id': fr['id'], 'size': dset['file_size']}}
+
+            # Set all exists status to false for server file records
+            self.one.alyx.rest('files', 'partial_update', id=fr['id'], data={'exists': False})
+
+            source_paths.append(out.relative_to(Path(self.globus.endpoints['local']['root_path'])))
+            target_paths.append(add_uuid_string(fr['relative_path'], dset['id']))
+
+        if len(target_paths) != 0:
+            ts = time()
+            for sp, tp in zip(source_paths, target_paths):
+                _logger.info(f'Uploading {sp} to {tp}')
+            self.globus.mv('local', f'flatiron_{self.lab}', source_paths, target_paths)
+            _logger.debug(f'Complete. Time elapsed {time() - ts}')
+
+        for collection, files in collections.items():
+            globus_files = self.globus.ls(f'flatiron_{self.lab}', collection, remove_uuid=True, return_size=True)
+            file_names = [gl[0] for gl in globus_files]
+            file_sizes = [gl[1] for gl in globus_files]
+
+            for name, details in files.items():
+                try:
+                    idx = file_names.index(name)
+                    size = file_sizes[idx]
+                    if size == details['size']:
+                        # update the file record if sizes match
+                        self.one.alyx.rest('files', 'partial_update', id=details['fr_id'], data={'exists': True})
+                    else:
+                        _logger.warning(f'File {name} found on SDSC but sizes do not match')
+                except ValueError:
+                    _logger.warning(f'File {name} not found on SDSC')
+
+        return response
+
+        #ftp_patcher = FTPPatcher(one=self.one)
+        #return ftp_patcher.create_dataset(path=outputs, created_by=self.one.alyx.user,
+        #                                  versions=versions, **kwargs)
 
 
 class RemoteGlobusDataHandler(DataHandler):
