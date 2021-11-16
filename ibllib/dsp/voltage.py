@@ -340,7 +340,7 @@ def decompress_destripe_cbin(sr_file, output_file=None, h=None, wrot=None, appen
     # compute LP filter coefficients
     sos = scipy.signal.butter(**butter_kwargs, output='sos')
     nbytes = dtype(1).nbytes
-    nprocesses = nprocesses or cpu_count()
+    nprocesses = nprocesses or int(cpu_count() - cpu_count()/4)
     print(f'No. of cpu processes: {nprocesses}')
 
     if append:
