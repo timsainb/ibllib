@@ -278,7 +278,7 @@ class RemoteAwsDataHandler(DataHandler):
             # Set all exists status to false for server file records
             self.one.alyx.rest('files', 'partial_update', id=fr['id'], data={'exists': False})
 
-            source_paths.append(out.relative_to(Path(self.globus.endpoints['local']['root_path'])))
+            source_paths.append(out)
             target_paths.append(add_uuid_string(fr['relative_path'], dset['id']))
 
         if len(target_paths) != 0:
