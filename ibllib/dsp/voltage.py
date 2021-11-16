@@ -321,7 +321,7 @@ def decompress_destripe_cbin(sr_file, output_file=None, h=None, wrot=None, appen
     :param nprocesses: (optional) number of parallel processes to run, defaults to number or processes detected with joblib
     :return:
     """
-
+    print('ima here at the very beginning')
     SAMPLES_TAPER = 128
     NBATCH = nbatch or 65536
     # handles input parameters
@@ -341,6 +341,7 @@ def decompress_destripe_cbin(sr_file, output_file=None, h=None, wrot=None, appen
     sos = scipy.signal.butter(**butter_kwargs, output='sos')
     nbytes = dtype(1).nbytes
     nprocesses = nprocesses or cpu_count()
+    print(f'No. of cpu processes: {nprocesses}')
 
     if append:
         # need to find the end of the file and the offset
