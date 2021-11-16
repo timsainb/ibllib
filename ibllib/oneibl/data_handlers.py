@@ -258,7 +258,7 @@ class RemoteAwsDataHandler(DataHandler):
 
         # register datasets
         versions = super().uploadData(outputs, version)
-        response = register_dataset(outputs, one=self.one, server_only=True, **kwargs)
+        response = register_dataset(outputs, one=self.one, server_only=True, versions=versions, **kwargs)
 
         # upload directly via globus
         source_paths = []
