@@ -752,7 +752,7 @@ class EphysCellsQc(tasks.Task):
         Outputs a QC table in the clusters ALF object and labels corresponding probes in Alyx
         """
         files_spikes = Path(self.session_path).joinpath('alf').rglob('spikes.times.npy')
-        folder_probes = [f.parent for f in files_spikes]
+        folder_probes = [f.parent for f in files_spikes if 'pykilosort' in str(f)]
         out_files = []
         for folder_probe in folder_probes:
             try:
