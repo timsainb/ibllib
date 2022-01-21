@@ -348,6 +348,31 @@ class TestPipesMisc(unittest.TestCase):
         self.root_test_folder.cleanup()
 
 
+@unittest.skip('unfinished')
+class TestSyncWidefieldData(unittest.TestCase):
+    """TODO Tests for the ibllib.pipes.misc.confirm_widefield_remote_folder"""
+
+    def setUp(self):
+        # Data emulating local rig data
+        self.root_test_folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.root_test_folder.cleanup)
+
+        # Create two rig sessions, one with 3A probe data and one with 3B probe data
+        self.session_path_3A = fu.create_fake_session_folder(self.root_test_folder.name)
+        # fu.create_fake_raw_behavior_data_folder(self.session_path_3A)
+        self.session_path_3B = fu.create_fake_session_folder(self.root_test_folder.name)
+        fu.create_fake_raw_behavior_data_folder(self.session_path_3B)
+
+        # Make some files
+        fu.populate_raw_spikeglx(self.session_path_3B / 'raw_ephys_data', '3B', n_probes=3)
+
+        ephys_folder = self.session_path_3A / 'raw_ephys_data'
+        fu.populate_raw_spikeglx(ephys_folder, '3A', legacy=True, n_probes=1)
+        # IBL protocol is for users to copy data to the right probe folder
+        shutil.move(ephys_folder.joinpath('raw_ephys_folder'),
+                    ephys_folder.joinpath('my_run_probe00'))
+
+
 class TestScanFixPassiveFiles(unittest.TestCase):
     """"""
 
