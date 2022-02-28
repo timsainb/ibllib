@@ -179,7 +179,7 @@ def plot_scalar_on_flatmap(regions, values, depth=0, flatmap='dorsal_cortex', ma
     """
 
     if clevels is None:
-        clevels = (np.min(values), np.max(values))
+        clevels = (np.nanmin(values), np.nanmax(values))
 
     ba = flmap_atlas or FlatMap(flatmap=flatmap)
     br = ba.regions
