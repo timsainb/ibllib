@@ -2,15 +2,15 @@
 A module for the base Extractor classes.  The Extractor, given a session path, will extract the
 processed data from raw hardware files and optionally save them.
 """
-
 import abc
-from collections import OrderedDict
 import json
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from one.alf.files import get_session_path
+
 from ibllib.io import raw_data_loaders as raw
 from ibllib.io.raw_data_loaders import load_settings, _logger
 
@@ -199,10 +199,10 @@ def get_task_extractor_type(task_name):
 
 
 def get_session_extractor_type(session_path):
-    """
-    From a session path, loads the settings file, finds the task and checks if extractors exist
+    """From a session path, loads the settings file, finds the task, and checks if extractors exist
     task names examples:
-    :param session_path:
+
+    :param session_path: path to the session being evaluated
     :return: bool
     """
     settings = load_settings(session_path)
@@ -217,20 +217,21 @@ def get_session_extractor_type(session_path):
 
 
 def get_pipeline(session_path):
-    """
-    Get the pre-processinf pipeline name from a session path
-    :param session_path:
-    :return:
+    """Get the pre-processing pipeline name from a session path
+
+    :param session_path: path to the session being evaluated
+    :return: str of the modality pipeline
     """
     stype = get_session_extractor_type(session_path)
     return _get_pipeline_from_task_type(stype)
 
 
 def _get_pipeline_from_task_type(stype):
-    """
-    Returns the pipeline from the task type. Some tasks types directly define the pipeline
-    :param stype: session_type or task extractor type
-    :return:
+    """ Returns the pipeline from the task type. Some task types directly define the pipeline. This
+    function should be modified when adding a new modality.
+
+    :param stype: session_type or task extractor type, str is expected
+    :return: str of the modality pipeline
     """
     if stype in ['ephys_biased_opto', 'ephys', 'ephys_training', 'mock_ephys', 'sync_ephys']:
         return 'ephys'

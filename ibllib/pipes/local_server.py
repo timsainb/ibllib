@@ -1,37 +1,46 @@
+""" Collection of utility functions that are used to ease the management of the local lab server.
+When adding a new modality for data extraction, modify the _get_pipeline_class function.
+"""
 import logging
-import time
-from datetime import datetime
-from pathlib import Path
-import pkg_resources
 import re
 import subprocess
 import sys
+import time
 import traceback
+from datetime import datetime
+from pathlib import Path
 
+import pkg_resources
 from one.api import ONE
 
+import ibllib.oneibl.registration as registration
 from ibllib.io.extractors.base import get_pipeline, get_task_protocol, get_session_extractor_type
 from ibllib.pipes import tasks, training_preprocessing, ephys_preprocessing
 from ibllib.time import date2isostr
-import ibllib.oneibl.registration as registration
 
 _logger = logging.getLogger('ibllib')
-LARGE_TASKS = ['EphysVideoCompress', 'TrainingVideoCompress', 'SpikeSorting', 'EphysDLC']  # 'TrainingDLC',
+LARGE_TASKS = ['EphysVideoCompress', 'TrainingVideoCompress', 'SpikeSorting', 'EphysDLC']  # 'TrainingDLC', # noqa
 
 
 def _get_pipeline_class(session_path, one):
+    """ Function to determine what pipeline class should be utilized.
+
+    :param session_path: session location to be evaluated
+    :param one: object passed directly to the return
+    :returns: PipelineClass object and a passthrough of the one object
+    """
     pipeline = get_pipeline(session_path)
     if pipeline == 'training':
-        PipelineClass = training_preprocessing.TrainingExtractionPipeline
+        pipeline_class = training_preprocessing.TrainingExtractionPipeline
     elif pipeline == 'ephys':
-        PipelineClass = ephys_preprocessing.EphysExtractionPipeline
+        pipeline_class = ephys_preprocessing.EphysExtractionPipeline
     else:
         # try and look if there is a custom extractor in the personal projects extraction class
         import projects.base
         task_type = get_session_extractor_type(session_path)
-        PipelineClass = projects.base.get_pipeline(task_type)
-    _logger.info(f"Using {PipelineClass} pipeline for {session_path}")
-    return PipelineClass(session_path=session_path, one=one)
+        pipeline_class = projects.base.get_pipeline(task_type)
+    _logger.info(f"Using {pipeline_class} pipeline for {session_path}")
+    return pipeline_class(session_path=session_path, one=one)
 
 
 def _get_lab(one):
@@ -120,7 +129,8 @@ def job_creator(root_path, one=None, dry=False, rerun=False, max_md5_size=None):
             pipe = _get_pipeline_class(session_path, one)
             if pipe is None:
                 task_protocol = get_task_protocol(session_path)
-                _logger.info(f'Session task protocol {task_protocol} has no matching pipeline pattern {session_path}')
+                _logger.info(f'Session task protocol {task_protocol} '
+                             f'has no matching pipeline pattern {session_path}')
             if rerun:
                 rerun__status__in = '__all__'
             else:
@@ -129,7 +139,7 @@ def job_creator(root_path, one=None, dry=False, rerun=False, max_md5_size=None):
             flag_file.unlink()
         except BaseException:
             _logger.error(traceback.format_exc())
-            _logger.warning(f'Creating session / registering raw datasets {session_path} errored')
+            _logger.warning(f'Creating session / registering raw datasets {session_path} error')
             continue
 
     return all_datasets

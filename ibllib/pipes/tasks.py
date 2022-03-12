@@ -19,20 +19,20 @@ _logger = logging.getLogger('ibllib')
 
 
 class Task(abc.ABC):
-    log = ""  # place holder to keep the log of the task for registratoin
+    log = ""  # placeholder to keep the log of the task for registration
     cpu = 1   # CPU resource
     gpu = 0   # GPU resources: as of now, either 0 or 1
     io_charge = 5  # integer percentage
-    priority = 30  # integer percentage, 100 means highest priority
+    priority = 30  # integer percentage, 100 means the highest priority
     ram = 4  # RAM needed to run (Go)
     one = None  # one instance (optional)
     level = 0  # level in the pipeline hierarchy: level 0 means there is no parent task
-    outputs = None  # place holder for a list of Path containing output files
+    outputs = None  # placeholder for a list of Path containing output files
     time_elapsed_secs = None
     time_out_secs = 3600 * 2  # time-out after which a task is considered dead
     version = version.ibllib()
-    signature = {'input_files': [], 'output_files': []}  # list of tuples (filename, collection, required_flag)
-    force = False  # whether or not to re-download missing input files on local server if not present
+    signature = {'input_files': [], 'output_files': []}  # list of tuples (filename, collection, required_flag) # noqa
+    force = False  # whether or not to re-download missing input files on local server if not present # noqa
 
     def __init__(self, session_path, parents=None, taskid=None, one=None,
                  machine=None, clobber=True, location='server'):

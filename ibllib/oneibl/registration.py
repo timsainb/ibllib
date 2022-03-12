@@ -1,20 +1,23 @@
-from pathlib import Path
-import json
+""" When adding a new modality, be sure to modify the REGISTRATION_GLOB_PATTERNS variable and the
+'_alyx_procedure_from_task()' function if required.
+"""
 import datetime
+import json
 import logging
 import re
+from pathlib import Path
 
+import one.alf.exceptions as alferr
 from dateutil import parser as dateparser
 from iblutil.io import hashfile
 from one.alf.files import get_session_path
-import one.alf.exceptions as alferr
 from one.api import ONE
 
 import ibllib.io.extractors.base
-from ibllib.misc import version
-import ibllib.time
 import ibllib.io.raw_data_loaders as raw
+import ibllib.time
 from ibllib.io import flags
+from ibllib.misc import version
 
 _logger = logging.getLogger('ibllib')
 EXCLUDED_EXTENSIONS = ['.flag', '.error', '.avi']
@@ -351,6 +354,12 @@ def _alyx_procedure_from_task(task_protocol):
 
 
 def _alyx_procedure_from_task_type(task_type):
+    """Function used to perform a simple lookup on a modality. When creating a new modality, modify
+    the 'lookup' local dict variable if required.
+
+    :param task_type: expected str
+    :return: str of alyx procedures
+    """
     lookup = {'biased': 'Behavior training/tasks',
               'biased_opto': 'Behavior training/tasks',
               'habituation': 'Behavior training/tasks',

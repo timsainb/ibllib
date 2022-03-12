@@ -1,17 +1,25 @@
+"""Catch all module for functions related to the extraction pipeline. When setting up a new
+modality, add a new function to this module for copying the raw data to the local lab server. Call
+this newly created function from within the appropriate 'confirm_<modality>_remote_folder'
+function, i.e. if the new modality acquired data on the ephys PC have the
+'confirm_ephys_remote_folder' function call the newly created function. This will also be used in
+conjunction with a 'deploy script' in the iblscripts repo so that users can run it from the command
+line. A good example of a 'deploy script': 'iblscripts/deploy/ephyspc/transfer_ephys_session.py'
+"""
+import hashlib
 import json
 import logging
-import shutil
-import hashlib
-from pathlib import Path
 import re
+import shutil
+from pathlib import Path
 from typing import Union, List
 
 import iblutil.io.params as params
-from one.alf.spec import is_uuid_string, is_session_path
+from iblutil.io import hashfile
 from one.alf.files import get_session_path
+from one.alf.spec import is_uuid_string, is_session_path
 from one.api import ONE
 
-from iblutil.io import hashfile
 import ibllib.io.flags as flags
 import ibllib.io.raw_data_loaders as raw
 import ibllib.io.spikeglx as spikeglx

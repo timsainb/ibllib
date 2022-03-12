@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-# -*- coding:utf-8 -*-
-# @Author: Niccolò Bonacchi
-# @Date: Friday, July 5th 2019, 11:46:37 am
-from ibllib.io.flags import FLAG_FILE_NAMES
+"""Package used to help define the extraction process of the various modalities. When looking to
+create a new modality, create a new module here. It should contain a new pipeline subclass and
+modality-specific tasks. Import any tasks from other pipelines that can be reused and add your
+takes here.
+"""
