@@ -226,6 +226,16 @@ def create_ephyspc_params(force=False, silent=False):
 
 
 def confirm_video_remote_folder(local_folder=False, remote_folder=False, force=False):
+    """Confirms the video modality remote folder existence
+    :param local_folder: defaults to False
+    :type local_folder: bool
+    :param remote_folder: defaults to False
+    :type remote_folder: bool
+    :param force: defaults to False
+    :type force: bool
+    :param iblscripts_folder: defaults to False
+    :type iblscripts_folder: bool
+    """
     pars = load_videopc_params()
 
     if not local_folder:
@@ -281,6 +291,16 @@ def confirm_video_remote_folder(local_folder=False, remote_folder=False, force=F
 def confirm_ephys_remote_folder(
     local_folder=False, remote_folder=False, force=False, iblscripts_folder=False
 ):
+    """Confirms the ephys modality remote folder existence
+    :param local_folder: defaults to False
+    :type local_folder: bool
+    :param remote_folder: defaults to False
+    :type remote_folder: bool
+    :param force: defaults to False
+    :type force: bool
+    :param iblscripts_folder: defaults to False
+    :type iblscripts_folder: bool
+    """
     pars = load_ephyspc_params()
 
     if not local_folder:
