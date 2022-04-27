@@ -814,13 +814,13 @@ def noise_cutoff(amps, quantile_length=.25, n_bins=100, n_low_bins=1, low_bin_st
         if len(n[indices_bins_high_quantile]) > 0: #e nsure there are amplitudes in these bins 
             mean_high_quantile = np.mean(n[indices_bins_high_quantile][idx_use]) # mean of all amp values in high quantile bins
             std_high_quantile = np.std(n[indices_bins_high_quantile][idx_use])
-            first_low_quantile = n[(n!=0)][1]#.argmax()+1]#np.mean(n[idx_nz[0][low_bin_start:(low_bin_start+n_low_bins)]]) # take the second bin
+            first_low_quantile = n[(n!=0)][1] # take the second bin
             if std_high_quantile > 0:
                 cutoff = (first_low_quantile - mean_high_quantile) / std_high_quantile
                 peak_bin_height = np.max(n)
                 percent_of_peak = percent_threshold * peak_bin_height
 
-                fail_criteria = (cutoff > nc_threshold) & (first_bin_height > percent_of_peak)            
+                fail_criteria = (cutoff > nc_threshold) & (first_low_quantile > percent_of_peak)            
             else:
                 cutoff = np.float64(np.nan)
                 fail_criteria = True
@@ -1016,7 +1016,7 @@ def quick_unit_metrics(spike_clusters, spike_times, spike_amps, spike_depths,
                                           n_low_bins=params['nc_n_low_bins'],                                        
                                           low_bin_start = params['nc_low_bin_start'], 
                                           nc_threshold = params['nc_threshold'],
-                                          percent_peak = params['nc_percent_peak'])
+                                          percent_peak = params['nc_percent_peak'])[0]
 
         r.missed_spikes_est[ic], _, _ = missed_spikes_est(
             amps, spks_per_bin=params['spks_per_bin_for_missed_spks_est'],
