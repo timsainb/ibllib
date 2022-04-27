@@ -761,7 +761,7 @@ def slidingRP_viol(ts, bin_size=0.25, thresh=0.1, acceptThresh=0.1):
 
 def noise_cutoff(amps, quantile_length=.25, n_bins=100, n_low_bins=1, low_bin_start = 1, nc_threshold = 5, percent_peak = 0.10):
     """
-    A metric to determine whether a unit's amplitude distribution is cut off
+    A new metric to determine whether a unit's amplitude distribution is cut off
     (at floor), without assuming a Gaussian distribution.
 
     This metric takes the amplitude distribution, computes the mean and std
