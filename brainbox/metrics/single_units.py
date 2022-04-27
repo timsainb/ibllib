@@ -833,7 +833,7 @@ def noise_cutoff(amps, quantile_length=.25, n_bins=100, n_low_bins=1, low_bin_st
         fail_criteria = True
 
     nc_pass = int(~fail_criteria)
-    return nc_pass
+    return nc_pass, cutoff, first_low_quantile, mean_high_quantile, std_high_quantile, idx_highlight
 
 
 def spike_sorting_metrics(times, clusters, amps, depths, cluster_ids=None, params=METRICS_PARAMS):
