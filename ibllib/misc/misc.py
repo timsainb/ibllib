@@ -2,6 +2,7 @@
 import logging
 import subprocess
 import numpy as np
+from pathlib import Path
 from ibllib.exceptions import NvidiaDriverNotReady
 
 _logger = logging.getLogger('ibllib')
@@ -35,17 +36,28 @@ def logger_config(name=None):
     log.setLevel(logging.INFO)
     format_str = '%(asctime)s.%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s'
     date_format = '%Y-%m-%d %H:%M:%S'
+
+    # colorlog settings
     cformat = '%(log_color)s' + format_str
     colors = {'DEBUG': 'green',
               'INFO': 'cyan',
               'WARNING': 'bold_yellow',
               'ERROR': 'bold_red',
               'CRITICAL': 'bold_purple'}
-    formatter = colorlog.ColoredFormatter(cformat, date_format,
-                                          log_colors=colors)
+    formatter = colorlog.ColoredFormatter(cformat, date_format, log_colors=colors)
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     log.addHandler(stream_handler)
+
+    # filehandler settings
+    ibllib_log_dir = Path.home() / '.ibl_logs'
+    ibllib_log_dir.mkdir() if ibllib_log_dir.exists() is False else None
+    file_handler = logging.FileHandler(ibllib_log_dir / 'ibllib.log')
+    file_format = logging.Formatter(format_str, date_format)
+    file_handler.setFormatter(file_format)
+    log.addHandler(file_handler)
+
+    log.info("Logging initiated")
     return log
 
 
