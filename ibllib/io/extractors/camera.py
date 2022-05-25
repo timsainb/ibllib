@@ -3,6 +3,8 @@ This module handles extraction of camera timestamps for both Bpod and FPGA.
 """
 import logging
 from functools import partial
+from pathlib import Path
+import re
 
 import cv2
 import numpy as np
@@ -26,21 +28,20 @@ from ibllib.io.extractors.base import (
 _logger = logging.getLogger('ibllib')
 
 
-def extract_camera_sync(sync, chmap=None):
-    """
-    Extract camera timestamps from the sync matrix
+def extract_camera_sync(sync, chmap):
+    """Extract camera timestamps from the sync matrix.
+
+    Extracts the sync fronts for all channels with a name ending in '_camera'.
 
     :param sync: dictionary 'times', 'polarities' of fronts detected on sync trace
-    :param chmap: dictionary containing channel indices. Default to constant.
+    :param chmap: dictionary containing channel indices.
     :return: dictionary containing camera timestamps
     """
-    assert(chmap)
-    sr = get_sync_fronts(sync, chmap['right_camera'])
-    sl = get_sync_fronts(sync, chmap['left_camera'])
-    sb = get_sync_fronts(sync, chmap['body_camera'])
-    return {'right': sr.times[::2],
-            'left': sl.times[::2],
-            'body': sb.times[::2]}
+    cam_sync = {}
+    for m in filter(None, map(re.compile(r'(\w+)_camera').match, chmap.keys())):
+        key, = m.groups()
+        cam_sync[key] = get_sync_fronts(sync, chmap[m.group()]).times[::2]
+    return cam_sync
 
 
 def get_video_length(video_path):
@@ -61,7 +62,7 @@ class CameraTimestampsFPGA(BaseExtractor):
 
     def __init__(self, label, session_path=None):
         super().__init__(session_path)
-        self.label = assert_valid_label(label)
+        self.label = label
         self.save_names = f'_ibl_{label}Camera.times.npy'
         self.var_names = f'{label}_camera_timestamps'
         self._log_level = _logger.level
@@ -642,7 +643,7 @@ def groom_pin_state(gpio, audio, ts, tolerance=2., display=False, take='first', 
     return gpio, audio_, fcn_a2b(ts)
 
 
-def extract_all(session_path, session_type=None, save=True, **kwargs):
+def extract_all(session_path, session_type=None, save=True, collection='raw_video_data*', **kwargs):
     """
     For the IBL ephys task, reads ephys binary file and extract:
         -   video time stamps
@@ -658,7 +659,7 @@ def extract_all(session_path, session_type=None, save=True, **kwargs):
     if not session_type or session_type not in _get_task_types_json_config().values():
         raise ValueError(f"Session type {session_type} has no matching extractor")
     elif 'ephys' in session_type:  # assume ephys == FPGA
-        labels = assert_valid_label(kwargs.pop('labels', ('left', 'right', 'body')))
+        labels = kwargs.pop('labels', ('left', 'right', 'body'))
         labels = (labels,) if isinstance(labels, str) else labels  # Ensure list/tuple
         extractor = [partial(CameraTimestampsFPGA, label) for label in labels]
         if 'sync' not in kwargs:

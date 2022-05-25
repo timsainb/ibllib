@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 
 from iblutil.io import jsonable
-from ibllib.io.video import assert_valid_label
 from ibllib.misc import version
 from ibllib.time import uncycle_pgts, convert_pgts
 
@@ -103,13 +102,14 @@ def load_data(session_path: Union[str, Path], time='absolute'):
     return data
 
 
-def load_camera_frameData(session_path, camera: str = 'left', raw: bool = False) -> pd.DataFrame:
+def load_camera_frameData(session_path, camera: str = 'left', raw: bool = False, collection='raw_video_data*') -> pd.DataFrame:
     """ Loads binary frame data from Bonsai camera recording workflow.
 
     Args:
         session_path (StrPath): Path to session folder
-        camera (str, optional): Load FramsData for specific camera. Defaults to 'left'.
+        camera (str, optional): Load FrameData for specific camera. Defaults to 'left'.
         raw (bool, optional): Whether to return raw or parsed data. Defaults to False.
+        collection (str, optional): An optional collection to search in. Defaults to folders starting with raw_video_data
 
     Returns:
         parsed: (raw=False, Default)
@@ -130,10 +130,9 @@ def load_camera_frameData(session_path, camera: str = 'left', raw: bool = False)
                 embeddedGPIOPinState    # GPIO pin state integer representation of 4 pins
             }
     """
-    camera = assert_valid_label(camera)
-    fpath = Path(session_path).joinpath("raw_video_data")
-    fpath = next(fpath.glob(f"_iblrig_{camera}Camera.frameData*.bin"), None)
-    assert fpath, f"{fpath}\nFile not Found: Could not find bin file for cam <{camera}>"
+    session_path = Path(session_path)
+    fpath = next(session_path.glob(f"{collection}/_iblrig_{camera}Camera.frameData*.bin"), None)
+    assert fpath, f"{session_path / collection}\nFile not Found: Could not find bin file for cam <{camera}>"
     rdata = np.fromfile(fpath, dtype=np.float64)
     assert rdata.size % 4 == 0, "Dimension mismatch: bin file length is not mod 4"
     rows = int(rdata.size / 4)
@@ -156,7 +155,7 @@ def load_camera_frameData(session_path, camera: str = 'left', raw: bool = False)
     return parsed_df
 
 
-def load_camera_ssv_times(session_path, camera: str):
+def load_camera_ssv_times(session_path, camera: str, collection='raw_video_data*'):
     """
     Load the bonsai frame and camera timestamps from Camera.timestamps.ssv
 
@@ -164,17 +163,19 @@ def load_camera_ssv_times(session_path, camera: str):
     NB: If using the new bin file the bonsai_times is a float in seconds since first frame
     :param session_path: Absolute path of session folder
     :param camera: Name of the camera to load, e.g. 'left'
+    :param collection: The collection in which to search
+
     :return: array of datetimes, array of frame times in seconds
     """
-    camera = assert_valid_label(camera)
-    video_path = Path(session_path).joinpath('raw_video_data')
-    if next(video_path.glob(f'_iblrig_{camera}Camera.frameData*.bin'), None):
-        df = load_camera_frameData(session_path, camera=camera)
+    session_path = Path(session_path)
+    collection = collection + '/' if collection else ''
+    if next(session_path.glob(f'{collection}_iblrig_{camera}Camera.frameData*.bin'), None):
+        df = load_camera_frameData(session_path, camera=camera, collection=collection)
         return df['Timestamp'].values, df['embeddedTimeStamp'].values
 
-    file = next(video_path.glob(f'_iblrig_{camera.lower()}Camera.timestamps*.ssv'), None)
+    file = next(session_path.glob(f'{collection}_iblrig_{camera.lower()}Camera.timestamps*.ssv'), None)
     if not file:
-        file = str(video_path.joinpath(f'_iblrig_{camera.lower()}Camera.timestamps.ssv'))
+        file = str(session_path.joinpath(collection, f'_iblrig_{camera.lower()}Camera.timestamps.ssv'))
         raise FileNotFoundError(file + ' not found')
     # NB: Numpy has deprecated support for non-naive timestamps.
     # Converting them is extremely slow: 6000 timestamps takes 0.8615s vs 0.0352s.
@@ -197,7 +198,7 @@ def load_camera_ssv_times(session_path, camera: str):
     return bonsai_times, camera_times
 
 
-def load_embedded_frame_data(session_path, label: str, raw=False):
+def load_embedded_frame_data(session_path, label: str, raw=False, collection=None):
     """
     Load the embedded frame count and GPIO for a given session.  If the file doesn't exist,
     or is empty, None values are returned.
@@ -205,14 +206,15 @@ def load_embedded_frame_data(session_path, label: str, raw=False):
     :param label: The specific video to load, one of ('left', 'right', 'body')
     :param raw: If True the raw data are returned without preprocessing, otherwise frame count is
     returned starting from 0 and the GPIO is returned as a dict of indices
+    :param collection: The collection in which to search
     :return: The frame count, GPIO
     """
-    count = load_camera_frame_count(session_path, label, raw=raw)
-    gpio = load_camera_gpio(session_path, label, as_dicts=not raw)
+    count = load_camera_frame_count(session_path, label, raw=raw, collection=collection)
+    gpio = load_camera_gpio(session_path, label, as_dicts=not raw, collection=collection)
     return count, gpio
 
 
-def load_camera_frame_count(session_path, label: str, raw=True):
+def load_camera_frame_count(session_path, label: str, raw=True, collection='raw_video_data*'):
     """
     Load the embedded frame count for a given session.  If the file doesn't exist, or is empty,
     a None value is returned.
@@ -220,19 +222,19 @@ def load_camera_frame_count(session_path, label: str, raw=True):
     :param label: The specific video to load, one of ('left', 'right', 'body')
     :param raw: If True the raw data are returned without preprocessing, otherwise frame count is
     returned starting from 0
+    :param collection: The collection in which to search
     :return: The frame count
     """
     if session_path is None:
         return
 
-    label = assert_valid_label(label)
-    video_path = Path(session_path).joinpath('raw_video_data')
-    if next(video_path.glob(f'_iblrig_{label}Camera.frameData*.bin'), None):
-        df = load_camera_frameData(session_path, camera=label)
+    collection = collection + '/' if collection else ''
+    if next(Path(session_path).glob(f'{collection}_iblrig_{label}Camera.frameData*.bin'), None):
+        df = load_camera_frameData(session_path, camera=label, collection=collection)
         return df['embeddedFrameCounter'].values
 
     # Load frame count
-    glob = video_path.glob(f'_iblrig_{label}Camera.frame_counter*.bin')
+    glob = Path(session_path).glob(f'{collection}_iblrig_{label}Camera.frame_counter*.bin')
     count_file = next(glob, None)
     count = np.fromfile(count_file, dtype=np.float64).astype(int) if count_file else []
     if len(count) == 0:
@@ -242,7 +244,7 @@ def load_camera_frame_count(session_path, label: str, raw=True):
     return count
 
 
-def load_camera_gpio(session_path, label: str, as_dicts=False):
+def load_camera_gpio(session_path, label: str, as_dicts=False, collection='raw_video_data*'):
     """
     Load the GPIO for a given session.  If the file doesn't exist, or is empty, a None value is
     returned.
@@ -255,23 +257,24 @@ def load_camera_gpio(session_path, label: str, as_dicts=False):
     :param label: The specific video to load, one of ('left', 'right', 'body')
     :param as_dicts: If False the raw data are returned boolean array with shape (n_frames, n_pins)
      otherwise GPIO is returned as a list of dictionaries with keys ('indices', 'polarities').
+    :param collection: The collection in which to search
     :return: An nx4 boolean array where columns represent state of GPIO pins 1-4.
      If as_dicts is True, a list of dicts is returned with keys ('indices', 'polarities'),
      or None if the dictionary is empty.
     """
     if session_path is None:
         return
-    raw_path = Path(session_path).joinpath('raw_video_data')
-    label = assert_valid_label(label)
 
     # Load pin state
-    if next(raw_path.glob(f'_iblrig_{label}Camera.frameData*.bin'), False):
+    session_path = Path(session_path)
+    collection = collection + '/' if collection else ''
+    if next(session_path.glob(f'{collection}_iblrig_{label}Camera.frameData*.bin'), False):
         df = load_camera_frameData(session_path, camera=label, raw=False)
         gpio = np.array([x for x in df['embeddedGPIOPinState'].values])
         if len(gpio) == 0:
             return [None] * 4 if as_dicts else None
     else:
-        GPIO_file = next(raw_path.glob(f'_iblrig_{label}Camera.GPIO*.bin'), None)
+        GPIO_file = next(session_path.glob(f'{collection}_iblrig_{label}Camera.GPIO*.bin'), False)
         # This deals with missing and empty files the same
         gpio = np.fromfile(GPIO_file, dtype=np.float64).astype(np.uint32) if GPIO_file else []
         # Check values make sense (4 pins = 16 possible values)
