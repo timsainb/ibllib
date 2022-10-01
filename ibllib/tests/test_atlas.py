@@ -296,6 +296,7 @@ class TestBrainRegions(unittest.TestCase):
         for ind in [ind0, ind1]:
             with self.subTest(indices=ind):
                 acronyms = self.brs.acronym[ind]
+                # here we want to test that for a single acronym, the values get converted to array
                 values = np.arange(len(acronyms))
                 ibr, ivals = self.brs.propagate_down(acronyms, values)
                 idesc = []
@@ -303,6 +304,11 @@ class TestBrainRegions(unittest.TestCase):
                     ii = ismember(self.brs.descendants(self.brs.id[i])['id'], self.brs.id)[1]
                     idesc.append(ii)
                 np.testing.assert_equal(ibr, np.unique(np.concatenate(idesc)))
+
+    def test_propagate_down_scalar(self):
+        ibr, ivals = self.brs.propagate_down(22, 0)
+        ii = ismember(self.brs.descendants(self.brs.id[340])['id'], self.brs.id)[1]
+        np.testing.assert_equal(ii, ibr)
 
 
 class TestAtlasPlots(unittest.TestCase):

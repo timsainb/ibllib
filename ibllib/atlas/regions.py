@@ -132,6 +132,7 @@ class _BrainRegions:
         :param values: list or array of associated values
         :return:
         """
+        values = np.array(values, ndmin=1)
         user_aids = self.parse_acronyms_argument(acronyms)
         _, user_indices = ismember(user_aids, self.id)
         self.compute_hierarchy()
