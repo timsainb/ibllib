@@ -123,7 +123,7 @@ class _BrainRegions:
         leaves = np.setxor1d(self.id, self.parent)
         return self.get(np.int64(leaves[~np.isnan(leaves)]))
 
-    def propagate_down(self, acronyms, values):
+    def propagate_down(self, acronyms, values=None):
         """
         This function remaps a set of user specified acronyms and values to the
         swanson map, by filling down the child nodes when higher up values are
@@ -136,11 +136,14 @@ class _BrainRegions:
         _, user_indices = ismember(user_aids, self.id)
         self.compute_hierarchy()
         ia, ib = ismember(self.hierarchy, user_indices)
-        v = np.zeros_like(ia, dtype=np.float64) * np.NaN
-        v[ia] = values[ib]
-        all_values = np.nanmedian(v, axis=0)
         indices = np.where(np.any(ia, axis=0))[0]
-        all_values = all_values[indices]
+        v = np.zeros_like(ia, dtype=np.float64) * np.NaN
+        if values is None:
+            all_values = None
+        else:
+            v[ia] = values[ib]
+            all_values = np.nanmedian(v, axis=0)
+            all_values = all_values[indices]
         return indices, all_values
 
     def _mapping_from_regions_list(self, new_map, lateralize=False):

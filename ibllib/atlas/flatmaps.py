@@ -164,10 +164,14 @@ def plot_swanson(acronyms=None, values=None, ax=None, hemisphere=None, br=None,
         s2a = np.r_[s2a, np.flipud(s2a)]
     if orientation == 'portrait':
         s2a = np.transpose(s2a)
-    if acronyms is None:
+    if values is None:
         regions = br.mappings[mapping][s2a]
         im = br.rgba[regions]
-        iswan = None
+        if acronyms is None:
+            iswan = None
+        else:
+            ibr, vals = br.propagate_down(acronyms)
+            iswan, iv = ismember(s2a, ibr)
     else:
         ibr, vals = br.propagate_down(acronyms, values)
         # we now have the mapped regions and aggregated values, map values onto swanson map
